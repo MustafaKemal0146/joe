@@ -1,0 +1,123 @@
+name: joe
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: joe
+      POSTGRES_USER: joe
+      POSTGRES_PASSWORD: ${JOE_POSTGRES_PASSWORD:-joe-local-only}
+    volumes:
+      - joe-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U joe -d joe"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - joe-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${JOE_MINIO_USER:-joe}
+      MINIO_ROOT_PASSWORD: ${JOE_MINIO_PASSWORD:-joe-local-storage}
+    volumes:
+      - joe-objects:/data
+    ports:
+      - "127.0.0.1:${JOE_MINIO_CONSOLE_PORT:-9002}:9001"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      JOE_ENVIRONMENT: local
+      JOE_DATABASE_URL: postgresql+psycopg://joe:${JOE_POSTGRES_PASSWORD:-joe-local-only}@postgres:5432/joe
+      JOE_REDIS_URL: redis://redis:6379/0
+      JOE_DATA_DIR: /data
+      JOE_IMPORT_ROOT: /imports
+      JOE_CORS_ORIGINS: http://localhost:${JOE_WEB_PORT:-4177},http://127.0.0.1:${JOE_WEB_PORT:-4177}
+    volumes:
+      - joe-data:/data
+      - type: bind
+        source: ${JOE_IMPORT_PATH:-./imports}
+        target: /imports
+        read_only: true
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 8s
+      timeout: 4s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    environment:
+      JOE_ENVIRONMENT: local
+      JOE_DATABASE_URL: postgresql+psycopg://joe:${JOE_POSTGRES_PASSWORD:-joe-local-only}@postgres:5432/joe
+      JOE_REDIS_URL: redis://redis:6379/0
+      JOE_DATA_DIR: /data
+      JOE_IMPORT_ROOT: /imports
+    volumes:
+      - joe-data:/data
+      - type: bind
+        source: ${JOE_IMPORT_PATH:-./imports}
+        target: /imports
+        read_only: true
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_JOE_API_URL: http://localhost:8000/api/v1
+    ports:
+      - "127.0.0.1:${JOE_WEB_PORT:-4177}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-ai"]
+    volumes:
+      - joe-ollama:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    restart: unless-stopped
+
+volumes:
+  joe-postgres:
+  joe-redis:
+  joe-objects:
+  joe-data:
+  joe-ollama:

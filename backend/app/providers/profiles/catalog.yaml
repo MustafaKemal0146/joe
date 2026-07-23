@@ -1,0 +1,180 @@
+- id: openai
+  name: OpenAI
+  protocol: openai-chat
+  default_base_url: https://api.openai.com/v1
+  model_hint: gpt-5 veya hesabındaki bir sohbet modeli
+  docs_url: https://platform.openai.com/docs
+  aliases: [chatgpt]
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: anthropic
+  name: Anthropic
+  protocol: anthropic
+  default_base_url: https://api.anthropic.com/v1
+  model_hint: Claude model kimliği
+  docs_url: https://docs.anthropic.com/
+  aliases: [claude]
+  capabilities: {structured_output: false, tools: true, vision: true, model_listing: false}
+
+- id: gemini
+  name: Google Gemini
+  protocol: gemini
+  default_base_url: https://generativelanguage.googleapis.com/v1beta
+  model_hint: gemini model kimliği
+  docs_url: https://ai.google.dev/gemini-api/docs
+  aliases: [google]
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: openrouter
+  name: OpenRouter
+  protocol: openai-chat
+  default_base_url: https://openrouter.ai/api/v1
+  model_hint: sağlayıcı/model
+  docs_url: https://openrouter.ai/docs
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: groq
+  name: Groq
+  protocol: openai-chat
+  default_base_url: https://api.groq.com/openai/v1
+  docs_url: https://console.groq.com/docs
+  capabilities: {structured_output: true, tools: true, vision: false, model_listing: true}
+
+- id: deepseek
+  name: DeepSeek
+  protocol: openai-chat
+  default_base_url: https://api.deepseek.com
+  docs_url: https://api-docs.deepseek.com/
+  capabilities: {structured_output: true, tools: true, vision: false, model_listing: true}
+
+- id: mistral
+  name: Mistral AI
+  protocol: openai-chat
+  default_base_url: https://api.mistral.ai/v1
+  docs_url: https://docs.mistral.ai/
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: xai
+  name: xAI
+  protocol: openai-chat
+  default_base_url: https://api.x.ai/v1
+  aliases: [grok]
+  docs_url: https://docs.x.ai/
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: together
+  name: Together AI
+  protocol: openai-chat
+  default_base_url: https://api.together.xyz/v1
+  docs_url: https://docs.together.ai/
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: fireworks
+  name: Fireworks AI
+  protocol: openai-chat
+  default_base_url: https://api.fireworks.ai/inference/v1
+  docs_url: https://docs.fireworks.ai/
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: cerebras
+  name: Cerebras
+  protocol: openai-chat
+  default_base_url: https://api.cerebras.ai/v1
+  docs_url: https://inference-docs.cerebras.ai/
+  capabilities: {structured_output: true, tools: true, vision: false, model_listing: true}
+
+- id: nvidia
+  name: NVIDIA NIM
+  protocol: openai-chat
+  default_base_url: https://integrate.api.nvidia.com/v1
+  docs_url: https://docs.api.nvidia.com/
+  capabilities: {structured_output: false, tools: false, vision: true, model_listing: true}
+
+- id: perplexity
+  name: Perplexity
+  protocol: openai-chat
+  default_base_url: https://api.perplexity.ai
+  docs_url: https://docs.perplexity.ai/
+  capabilities: {structured_output: true, tools: false, vision: false, model_listing: false}
+
+- id: novita
+  name: Novita AI
+  protocol: openai-chat
+  default_base_url: https://api.novita.ai/v3/openai
+  docs_url: https://novita.ai/docs
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: huggingface
+  name: Hugging Face
+  protocol: openai-chat
+  default_base_url: https://router.huggingface.co/v1
+  docs_url: https://huggingface.co/docs/inference-providers/
+  capabilities: {structured_output: false, tools: true, vision: true, model_listing: false}
+
+- id: qwen
+  name: Alibaba Qwen
+  protocol: openai-chat
+  default_base_url: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+  docs_url: https://www.alibabacloud.com/help/en/model-studio/
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: moonshot
+  name: Moonshot / Kimi
+  protocol: openai-chat
+  default_base_url: https://api.moonshot.ai/v1
+  aliases: [kimi]
+  docs_url: https://platform.moonshot.ai/docs/
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: zai
+  name: Z.AI
+  protocol: openai-chat
+  default_base_url: https://api.z.ai/api/paas/v4
+  aliases: [glm]
+  docs_url: https://docs.z.ai/
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
+- id: azure-openai
+  name: Azure OpenAI
+  protocol: azure-openai
+  default_base_url: null
+  model_hint: Azure deployment adı
+  docs_url: https://learn.microsoft.com/azure/ai-services/openai/
+  notes: Temel URL, deployment ve gerekirse api_version alanlarını gir.
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: false}
+
+- id: ollama
+  name: Ollama
+  protocol: ollama
+  default_base_url: http://ollama:11434
+  requires_api_key: false
+  api_key_label: Anahtar gerektirmez
+  docs_url: https://docs.ollama.com/api
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true, local: true}
+
+- id: lm-studio
+  name: LM Studio
+  protocol: openai-chat
+  default_base_url: http://host.docker.internal:1234/v1
+  requires_api_key: false
+  api_key_label: Anahtar gerektirmez
+  docs_url: https://lmstudio.ai/docs/developer/openai-compat
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true, local: true}
+
+- id: vllm
+  name: vLLM
+  protocol: openai-chat
+  default_base_url: http://host.docker.internal:8001/v1
+  requires_api_key: false
+  api_key_label: İsteğe bağlı
+  docs_url: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true, local: true}
+
+- id: custom-openai
+  name: Özel OpenAI Uyumlu Sağlayıcı
+  protocol: openai-chat
+  default_base_url: null
+  requires_api_key: false
+  api_key_label: Sağlayıcı gerektiriyorsa API anahtarı
+  model_hint: Sunucunun model kimliği
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true, local: false}
