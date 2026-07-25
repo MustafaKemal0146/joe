@@ -2,6 +2,7 @@ import type {
   AnalysisSession,
   ArtifactRecord,
   CaseRecord,
+  CaseWorkspace,
   CorpusRecord,
   CorpusSearchResult,
   DashboardSummary,
@@ -68,6 +69,7 @@ export const joeApi = {
       method: "POST",
     }),
   cases: () => request<CaseRecord[]>("/cases"),
+  caseWorkspace: (id: string) => request<CaseWorkspace>(`/cases/${id}/workspace`),
   createCase: (body: Record<string, unknown>) =>
     request<CaseRecord>("/cases", { method: "POST", body: JSON.stringify(body) }),
   analyses: () => request<AnalysisSession[]>("/analyses"),

@@ -64,6 +64,27 @@ export interface CaseRecord {
   updated_at: string;
 }
 
+export interface CaseWorkspace {
+  case: CaseRecord;
+  analyses: AnalysisSession[];
+  osint_runs: OsintRun[];
+  corpora: CorpusRecord[];
+  imports: Array<{
+    id: string;
+    case_id: string;
+    source_type: string;
+    source_root: string;
+    status: string;
+    imported_profiles: number;
+    imported_messages: number;
+    import_summary: Record<string, unknown>;
+    error_code: string | null;
+    error_message: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+}
+
 export interface CouncilTurn {
   id: string;
   phase: string;
