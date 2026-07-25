@@ -43,6 +43,7 @@ import { DirectorySource } from "./directory-source";
 
 
 const CORE_COUNCIL = ["freud", "jung", "klein", "reich", "fromm", "kristeva", "zizek"];
+const MAX_ANALYSIS_SOURCE_CHARS = 1_000_000;
 const PHASES = [
   ["hazırlanıyor", "Hazırlık"],
   ["bağımsız_görüşler", "Bağımsız görüş"],
@@ -200,7 +201,16 @@ export function AnalysisView({
     if (!conversationId || !instagramBatchId) return;
     setInstagramLoading(true);
     try {
-      const messages = await joeApi.importMessages(instagramBatchId, conversationId, 1000);
+      // API sayfa başına en fazla 1.000 mesaj döndürür. Konuşmanın son 1.000
+      // mesajını sessizce seçmek yerine tüm sayfaları alırız; kaynak sınırı
+      // aşılırsa kullanıcıya açıkça bildirilir ve hiçbir bölüm kaybolmaz.
+      const messages: ImportedMessage[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const page = await joeApi.importMessages(instagramBatchId, conversationId, pageSize, offset);
+        messages.push(...page);
+        if (page.length < pageSize) break;
+      }
       const conversation = instagramConversations.find((item) => item.id === conversationId);
       const ordered = [...messages].sort((left, right) => left.timestamp_ms - right.timestamp_ms);
       setInstagramMessages(ordered);
@@ -366,7 +376,7 @@ export function AnalysisView({
               }}
             />
           ) : sourcePanel === "whatsapp" ? (
-            <div className="space-y-3"><p className="text-sm text-zinc-600">WhatsApp dışa aktarma `.txt` dosyasını seç. Joe önce katılımcıları çıkarır; analiz edilecek kişiyi sen belirlersin.</p><input type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadWhatsApp(file); event.currentTarget.value = ""; }} />{whatsappParticipants.length ? <label><span>Kim analiz edilecek?</span><select value={whatsappTarget} onChange={(event) => setWhatsappTarget(event.target.value)}><option value="">Katılımcı seç</option>{whatsappParticipants.map((person) => <option key={person} value={person}>{person}</option>)}</select></label> : null}{sourceText ? <textarea className="analiz-metni" maxLength={120000} value={sourceText} onChange={(event) => setSourceText(event.target.value)} /> : null}</div>
+            <div className="space-y-3"><p className="text-sm text-zinc-600">WhatsApp dışa aktarma `.txt` dosyasını seç. Joe önce katılımcıları çıkarır; analiz edilecek kişiyi sen belirlersin. Metin kanıt parçalarına ayrılır; kaynak sessizce kesilmez.</p><input type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadWhatsApp(file); event.currentTarget.value = ""; }} />{whatsappParticipants.length ? <label><span>Kim analiz edilecek?</span><select value={whatsappTarget} onChange={(event) => setWhatsappTarget(event.target.value)}><option value="">Katılımcı seç</option>{whatsappParticipants.map((person) => <option key={person} value={person}>{person}</option>)}</select></label> : null}{sourceText ? <textarea className="analiz-metni" maxLength={MAX_ANALYSIS_SOURCE_CHARS} value={sourceText} onChange={(event) => setSourceText(event.target.value)} /> : null}</div>
           ) : sourcePanel === "instagram" ? (
             <div className="space-y-3">
               <p className="text-sm text-zinc-600">Bu vakaya ait, tamamlanmış Instagram içe aktarımlarından gerçek konuşmayı seç. Joe katılımcıları çıkarır; analiz odağını sen belirlersin.</p>
@@ -381,10 +391,10 @@ export function AnalysisView({
             <>
               <textarea
                 className="analiz-metni"
-                maxLength={120000}
+                maxLength={MAX_ANALYSIS_SOURCE_CHARS}
                 value={sourceText}
                 onChange={(event) => setSourceText(event.target.value)}
-                placeholder="Sohbeti, metni veya çözümlemek istediğin içeriği buraya ekle. Joe içeriği K1, K2… kanıt parçalarına ayıracak."
+                placeholder="Sohbeti, metni veya çözümlemek istediğin içeriği buraya ekle. Joe içeriği K1, K2… kanıt parçalarına ayıracak; kaynak sessizce kesilmez."
               />
               <div className="kaynak-alt-bilgi">
                 <span><ShieldCheck size={15} /> Yüklenen ham dosya yerel artefakt deposunda tutulur.</span>

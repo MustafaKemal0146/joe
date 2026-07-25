@@ -6,6 +6,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+MAX_ANALYSIS_SOURCE_CHARS = 1_000_000
+
+
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,7 +58,7 @@ class AnalysisSourceInput(BaseModel):
     source_type: str = Field(min_length=2, max_length=40)
     source_ref: str = Field(min_length=1, max_length=700)
     source_label: str = Field(min_length=1, max_length=500)
-    content: str = Field(min_length=1, max_length=120_000)
+    content: str = Field(min_length=1, max_length=MAX_ANALYSIS_SOURCE_CHARS)
 
 
 class AnalysisCreate(BaseModel):
@@ -63,7 +66,7 @@ class AnalysisCreate(BaseModel):
 
     title: str = Field(min_length=2, max_length=220)
     case_id: str = Field(min_length=2, max_length=36)
-    source_text: str = Field(default="", max_length=120_000)
+    source_text: str = Field(default="", max_length=MAX_ANALYSIS_SOURCE_CHARS)
     source_type: str = Field(default="text", max_length=50)
     source_items: list["AnalysisSourceInput"] = Field(default_factory=list, max_length=200)
     artifact_ids: list[str] = Field(default_factory=list, max_length=20)

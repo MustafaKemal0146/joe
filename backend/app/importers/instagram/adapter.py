@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,9 +81,9 @@ def parse_conversation(conv_path: Path) -> InstagramConversation:
             reactions = msg.get("reactions", [])
 
             messages.append(InstagramMessage(
-                sender_name=msg.get("sender_name", ""),
-                timestamp_ms=msg.get("timestamp_ms", 0),
-                content=msg.get("content"),
+                sender_name=_normalize_export_text(msg.get("sender_name")) or "Bilinmeyen katılımcı",
+                timestamp_ms=int(msg.get("timestamp_ms", 0) or 0),
+                content=_normalize_export_text(msg.get("content")),
                 photos=photos,
                 videos=videos,
                 audio=audio,
@@ -97,7 +98,9 @@ def parse_conversation(conv_path: Path) -> InstagramConversation:
 
     date_range = None
     if messages:
-        date_range = (messages[-1].timestamp, messages[0].timestamp)
+        ordered_timestamps = [message.timestamp for message in messages if message.timestamp_ms > 0]
+        if ordered_timestamps:
+            date_range = (min(ordered_timestamps), max(ordered_timestamps))
 
     return InstagramConversation(
         conversation_id=conv_id,
@@ -108,3 +111,15 @@ def parse_conversation(conv_path: Path) -> InstagramConversation:
         message_count=len(messages),
         date_range=date_range,
     )
+
+
+def _normalize_export_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = unicodedata.normalize("NFC", value).strip()
+    if any(marker in cleaned for marker in ("Ã", "Ä", "Â", "â")):
+        try:
+            cleaned = cleaned.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+    return cleaned or None

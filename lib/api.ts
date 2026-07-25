@@ -99,8 +99,8 @@ export const joeApi = {
     request<ImportBrowse>(`/imports/browse?path=${encodeURIComponent(path)}`),
   imports: () => request<ImportBatch[]>("/imports"),
   importConversations: (batchId: string) => request<ImportedConversation[]>(`/imports/${batchId}/conversations`),
-  importMessages: (batchId: string, conversationId: string, limit = 1000) =>
-    request<ImportedMessage[]>(`/imports/${batchId}/conversations/${conversationId}/messages?limit=${limit}`),
+  importMessages: (batchId: string, conversationId: string, limit = 1000, offset = 0) =>
+    request<ImportedMessage[]>(`/imports/${batchId}/conversations/${conversationId}/messages?limit=${limit}&offset=${offset}`),
   corpora: () => request<CorpusRecord[]>("/corpora"),
   corpus: (id: string) => request<CorpusRecord>(`/corpora/${id}`),
   createCorpus: (body: { name: string; relative_path: string; case_id: string }) =>

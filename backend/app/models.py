@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, JSON, Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -412,7 +412,9 @@ class ImportedMessage(Base):
         ForeignKey("imported_conversations.id", ondelete="CASCADE"), index=True
     )
     sender_name: Mapped[str] = mapped_column(String(300), index=True)
-    timestamp_ms: Mapped[int] = mapped_column(index=True)
+    # Meta exportları Unix zamanını milisaniye olarak verir; bu değer 32-bit
+    # Integer'a sığmaz (ör. 1_735_572_578_562).
+    timestamp_ms: Mapped[int] = mapped_column(BigInteger, index=True)
     content: Mapped[str | None] = mapped_column(Text)
     content_normalized: Mapped[str | None] = mapped_column(Text)
     share_link: Mapped[str | None] = mapped_column(String(2000))

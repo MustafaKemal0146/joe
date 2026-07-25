@@ -114,6 +114,7 @@ def import_instagram_archive(db: Session, batch_id: str) -> None:
                     sender_name=msg.sender_name,
                     timestamp_ms=msg.timestamp_ms,
                     content=msg.content,
+                    content_normalized=(msg.content or "").casefold() or None,
                     share_link=msg.share_link,
                     has_media=bool(all_media),
                     media_refs=all_media,
@@ -136,6 +137,9 @@ def import_instagram_archive(db: Session, batch_id: str) -> None:
     batch.import_summary = {
         "idempotent": True,
         "parse_errors": parse_errors[:200],
+        "archive_message_count": manifest.total_message_count,
+        "message_file_count": manifest.message_file_count,
+        "unreadable_message_files": manifest.unreadable_message_files,
         "source_root": str(root),
     }
     batch.status = JobStatus.completed.value

@@ -394,16 +394,23 @@ def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> Anal
         )
 
     rendered_sources = []
+    prepared_items: list[tuple[AnalysisSourceInput, str]] = []
     total_chars = 0
     for item in source_items:
-        remaining = max(0, 120_000 - total_chars)
-        content = item.content[:remaining]
+        content = item.content.strip()
         if not content.strip():
             continue
+        if total_chars + len(content) > settings.max_evidence_chars:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Seçilen kaynaklar toplam {settings.max_evidence_chars:,} karakter sınırını aşıyor. "
+                    "Joe içeriği sessizce kesmez; konuşmayı ayrı analiz oturumlarına böl veya daha dar bir kaynak seç."
+                ).replace(",", "."),
+            )
         rendered_sources.append(f"### {item.source_label}\n{content}")
+        prepared_items.append((item, content))
         total_chars += len(content)
-        if total_chars >= 120_000:
-            break
     if not rendered_sources:
         raise HTTPException(status_code=422, detail="Seçilen kaynaklardan analiz içeriği çıkarılamadı.")
 
@@ -417,17 +424,15 @@ def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> Anal
     package = AnalysisSourcePackage(analysis_session_id=session.id, version=1)
     db.add(package)
     db.flush()
-    for sequence, item in enumerate(source_items):
-        if sequence >= len(rendered_sources):
-            break
+    for sequence, (item, content) in enumerate(prepared_items):
         db.add(
             AnalysisSourceItem(
                 package_id=package.id,
                 source_type=item.source_type,
                 source_ref=item.source_ref,
                 source_label=item.source_label,
-                content=item.content[:120_000],
-                content_hash=hashlib.sha256(item.content.encode("utf-8")).hexdigest(),
+                content=content,
+                content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
                 sequence=sequence,
             )
         )

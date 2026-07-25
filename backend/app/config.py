@@ -35,7 +35,10 @@ class Settings(BaseSettings):
     provider_timeout_seconds: float = 90.0
     osint_timeout_seconds: int = 600
     max_upload_bytes: int = 75 * 1024 * 1024
-    max_evidence_chars: int = 120_000
+    # Bu sınır yükleme/ZIP sınırından ayrıdır: metin tabanlı analiz kaynakları
+    # için açık bir bellek ve sağlayıcı bağlamı korumasıdır. İçerik hiçbir zaman
+    # sessizce kesilmez; toplam bu sınırı aşarsa API anlaşılır biçimde reddeder.
+    max_evidence_chars: int = 1_000_000
     max_index_file_bytes: int = 128 * 1024 * 1024
     max_index_document_chars: int = 500_000
 
