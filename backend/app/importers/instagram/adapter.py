@@ -58,8 +58,9 @@ def parse_conversation(conv_path: Path) -> InstagramConversation:
 
         if not participants:
             participants = [
-                InstagramParticipant(name=p["name"])
+                InstagramParticipant(name=_normalize_export_text(p.get("name")) or "Bilinmeyen katılımcı")
                 for p in data.get("participants", [])
+                if isinstance(p, dict)
             ]
 
         for msg in data.get("messages", []):
@@ -94,7 +95,8 @@ def parse_conversation(conv_path: Path) -> InstagramConversation:
             ))
 
     conv_id = conv_path.name
-    conv_title = conv_path.name.split("_")[0] if "_" in conv_path.name else conv_path.name
+    raw_title = conv_path.name.split("_")[0] if "_" in conv_path.name else conv_path.name
+    conv_title = _normalize_export_text(raw_title) or raw_title
 
     date_range = None
     if messages:
@@ -118,8 +120,10 @@ def _normalize_export_text(value: object) -> str | None:
         return None
     cleaned = unicodedata.normalize("NFC", value).strip()
     if any(marker in cleaned for marker in ("Ã", "Ä", "Â", "â")):
-        try:
-            cleaned = cleaned.encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+        for encoding in ("latin-1", "cp1252"):
+            try:
+                cleaned = cleaned.encode(encoding).decode("utf-8")
+                break
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                continue
     return cleaned or None

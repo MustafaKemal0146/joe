@@ -74,7 +74,7 @@ def _assign_profile_field(manifest: ArchiveManifest, raw_label: object, raw_valu
     """Şema farklarından gelen profil alanlarını güvenli ve ihtiyatlı eşleştir."""
     if not isinstance(raw_label, str) or not isinstance(raw_value, str):
         return
-    label = unicodedata.normalize("NFKD", raw_label).casefold()
+    label = unicodedata.normalize("NFKD", _repair_text(raw_label)).casefold()
     value = _repair_text(raw_value)
     if not value:
         return
@@ -88,8 +88,9 @@ def _repair_text(value: str) -> str:
     """Meta'nın bazı exportlarında görülen UTF-8/Latin-1 bozulmasını düzelt."""
     cleaned = unicodedata.normalize("NFC", value).strip()
     if any(marker in cleaned for marker in ("Ã", "Ä", "Â", "â")):
-        try:
-            return cleaned.encode("latin-1").decode("utf-8").strip()
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            pass
+        for encoding in ("latin-1", "cp1252"):
+            try:
+                return cleaned.encode(encoding).decode("utf-8").strip()
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                continue
     return cleaned

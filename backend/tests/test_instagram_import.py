@@ -39,7 +39,7 @@ def test_parser_preserves_millisecond_timestamp_and_orders_date_range(tmp_path: 
     _write_json(
         conversation / "message_1.json",
         {
-            "participants": [{"name": "Özne"}, {"name": "Bağlam"}],
+            "participants": [{"name": chr(0xC3) + chr(0x96) + "zne"}, {"name": "Bağlam"}],
             "messages": [
                 {"sender_name": "Özne", "timestamp_ms": 1_735_572_578_562, "content": "son mesaj"},
                 {"sender_name": "Bağlam", "timestamp_ms": 1_735_572_578_000, "content": "ilk mesaj"},
@@ -50,5 +50,6 @@ def test_parser_preserves_millisecond_timestamp_and_orders_date_range(tmp_path: 
     parsed = parse_conversation(conversation)
 
     assert parsed.messages[0].timestamp_ms == 1_735_572_578_562
+    assert parsed.participants[0].name == "Özne"
     assert parsed.date_range is not None
     assert parsed.date_range[0] < parsed.date_range[1]
