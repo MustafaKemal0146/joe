@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..db import SessionLocal
 from ..models import (
@@ -15,11 +15,13 @@ from ..models import (
     OsintFindingSource,
     OsintRun,
     OsintRunEvent,
+    PageSnapshot,
 )
 from .base import OsintConnectorError
 from .maigret import MaigretConnector
 from .planner import build_manual_plan
 from .public_profiles import PublicProfilesConnector
+from .page_inspector import PageInspectionError, inspect_url
 from .sherlock import SherlockConnector
 from .whatsmyname import WhatsMyNameConnector
 
@@ -43,7 +45,6 @@ class OsintService:
             PublicProfilesConnector(),
         ]
         self.connectors = {connector.id: connector for connector in items}
-        self._event_seq: dict[str, int] = {}
 
     async def run(self, run_id: str) -> dict[str, Any]:
         with SessionLocal() as db:
@@ -107,6 +108,7 @@ class OsintService:
                 new_findings = payload.get("findings", [])
                 raw_findings.extend(new_findings)
                 self._commit_findings(run_id, connector_id, new_findings)
+                await self._inspect_findings(run_id, new_findings)
                 self._record_event(run_id, "connector_completed", {
                     "connector": connector_id,
                     "finding_count": len(new_findings),
@@ -159,16 +161,69 @@ class OsintService:
                 run.heartbeat_at = datetime.now(UTC)
         return result
 
-    def _next_seq(self, run_id: str) -> int:
-        seq = self._event_seq.get(run_id, 0) + 1
-        self._event_seq[run_id] = seq
-        return seq
+    async def _inspect_findings(self, run_id: str, findings: list[dict[str, Any]]) -> None:
+        async def one(finding: dict[str, Any]) -> tuple[str, Any, str | None]:
+            url = str(finding.get("profile_url") or "").strip()
+            if not url:
+                return url, None, "empty_url"
+            try:
+                return url, await inspect_url(url), None
+            except PageInspectionError as exc:
+                return url, None, exc.code
+
+        observations = await asyncio.gather(*(one(item) for item in findings))
+        for url, observation, error_code in observations:
+            if not url:
+                continue
+            if error_code:
+                self._record_event(
+                    run_id,
+                    "page_inspection_failed",
+                    {"url": url, "code": error_code},
+                )
+                continue
+            with SessionLocal.begin() as db:
+                finding = db.scalar(
+                    select(OsintFinding).where(
+                        OsintFinding.osint_run_id == run_id,
+                        OsintFinding.profile_url == url,
+                    )
+                )
+                if not finding:
+                    continue
+                db.add(
+                    PageSnapshot(
+                        finding_id=finding.id,
+                        url=observation.url,
+                        http_status=observation.status_code,
+                        fetched_at=datetime.now(UTC),
+                        content_hash=observation.content_hash,
+                        title=observation.title,
+                        page_text=observation.text,
+                        structured_data={"content_type": observation.content_type},
+                        extractor="httpx-html",
+                    )
+                )
+            self._record_event(
+                run_id,
+                "page_inspection_completed",
+                {"url": url, "status_code": observation.status_code, "title": observation.title},
+            )
 
     def _record_event(self, run_id: str, event_type: str, payload: dict[str, Any]) -> None:
         with SessionLocal.begin() as db:
+            db.get(OsintRun, run_id, with_for_update=True)
+            next_seq = int(
+                db.scalar(
+                    select(func.coalesce(func.max(OsintRunEvent.sequence), 0) + 1).where(
+                        OsintRunEvent.osint_run_id == run_id
+                    )
+                )
+                or 1
+            )
             db.add(OsintRunEvent(
                 osint_run_id=run_id,
-                sequence=self._next_seq(run_id),
+                sequence=next_seq,
                 event_type=event_type,
                 payload=payload,
             ))

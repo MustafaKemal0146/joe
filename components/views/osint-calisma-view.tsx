@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { joeApi } from "@/lib/api";
-import type { OsintRun } from "@/lib/types";
+import type { OsintFinding, OsintRun } from "@/lib/types";
 import { DurumRozeti, SayfaBasligi } from "@/components/ui";
 import { LoaderCircle, ExternalLink } from "lucide-react";
 
@@ -60,7 +60,7 @@ export function OsintCalismaView({ runId }: { runId: string }) {
       <div className="mt-6 space-y-2">
         <h3 className="font-medium text-zinc-700">Bulunan Bağlantılar ({findings.length})</h3>
         {findings.length === 0 && <p className="text-zinc-400 text-sm">Henüz bulgu yok.</p>}
-        {findings.map((f: any, i: number) => (
+        {findings.map((f: OsintFinding, i: number) => (
           <div key={i} className="p-3 bg-white border rounded flex items-start gap-3">
             <div className="flex-1 min-w-0">
               <a

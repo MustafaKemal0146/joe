@@ -93,7 +93,7 @@ export const joeApi = {
     request<ImportBrowse>(`/imports/browse?path=${encodeURIComponent(path)}`),
   corpora: () => request<CorpusRecord[]>("/corpora"),
   corpus: (id: string) => request<CorpusRecord>(`/corpora/${id}`),
-  createCorpus: (body: { name: string; relative_path: string; case_id: string | null }) =>
+  createCorpus: (body: { name: string; relative_path: string; case_id: string }) =>
     request<CorpusRecord>("/corpora", { method: "POST", body: JSON.stringify(body) }),
   searchCorpus: (id: string, body: { query: string; max_results?: number }) =>
     request<CorpusSearchResult>(`/corpora/${id}/search`, {

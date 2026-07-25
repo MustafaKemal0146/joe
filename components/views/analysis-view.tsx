@@ -75,6 +75,7 @@ export function AnalysisView({
   const [routes, setRoutes] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
   const [uploadedName, setUploadedName] = useState<string | null>(null);
+  const [artifactId, setArtifactId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<AnalysisSession | null>(null);
@@ -119,11 +120,9 @@ export function AnalysisView({
     setError(null);
     try {
       const artifact = await joeApi.uploadArtifact(file, caseId || undefined);
-      if (!artifact.extracted_text?.trim()) {
-        throw new Error("Dosya saklandı ancak analiz edilebilir metin çıkarılamadı.");
-      }
-      setSourceText(artifact.extracted_text);
-      setSourceType(artifact.extractor === "ocr" ? "screenshot" : artifact.extractor);
+      setArtifactId(artifact.id);
+      setSourceText(artifact.extracted_text ?? "");
+      setSourceType(artifact.media_type.startsWith("image/") ? "visual" : artifact.extractor);
       setSourcePanel("content");
       setUploadedName(artifact.original_name);
       if (!title) setTitle(artifact.original_name.replace(/\.[^.]+$/, "") + " analizi");
@@ -156,9 +155,10 @@ export function AnalysisView({
         : {};
       const created = await joeApi.createAnalysis({
         title: title || "Kuramsal konsey analizi",
-        case_id: caseId || null,
+        case_id: caseId,
         source_text: sourceText,
         source_type: sourceType,
+        artifact_ids: artifactId ? [artifactId] : [],
         selected_personas: selectedPersonas,
         default_provider_connection_id: effectiveDefaultConnection || null,
         provider_routes: selectedRoutes,
@@ -255,7 +255,7 @@ export function AnalysisView({
           </div>
 
           {sourcePanel === "content" && uploadedName ? (
-            <div className="yuklenen-dosya"><Paperclip size={16} /><div><strong>{uploadedName}</strong><span>Metin gerçek dosyadan çıkarıldı; aşağıda düzenleyebilirsin.</span></div><button type="button" onClick={() => { setUploadedName(null); setSourceText(""); setSourceType("text"); }} aria-label="Dosyayı kaldır"><X size={16} /></button></div>
+             <div className="yuklenen-dosya"><Paperclip size={16} /><div><strong>{uploadedName}</strong><span>{sourceText.trim() ? "Gerçek içerik çıkarıldı; istersen düzenleyebilirsin." : "Görsel kaynak hazır; seçili sağlayıcı vision desteğiyle incelenecek."}</span></div><button type="button" onClick={() => { setUploadedName(null); setArtifactId(null); setSourceText(""); setSourceType("text"); }} aria-label="Dosyayı kaldır"><X size={16} /></button></div>
           ) : null}
 
           {sourcePanel === "directory" ? (
@@ -273,8 +273,6 @@ export function AnalysisView({
             <>
               <textarea
                 className="analiz-metni"
-                required
-                minLength={20}
                 maxLength={120000}
                 value={sourceText}
                 onChange={(event) => setSourceText(event.target.value)}
@@ -345,7 +343,7 @@ export function AnalysisView({
 
           <div className="form-grid iki analiz-meta-formu">
             <label><span>Oturum başlığı</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Örn. İletişim örüntüsü analizi" /></label>
-            <label><span>Vaka bağlantısı</span><select value={caseId} onChange={(event) => setCaseId(event.target.value)}><option value="">Vakasız analiz</option>{cases.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label><span>Vaka bağlantısı</span><select required value={caseId} onChange={(event) => setCaseId(event.target.value)}><option value="">Vaka seç</option>{cases.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label className="tam-satir"><span>Varsayılan AI bağlantısı</span><select value={effectiveDefaultConnection} onChange={(event) => setDefaultConnection(event.target.value)}><option value="">Sağlayıcı seç</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.label} — {item.model}</option>)}</select></label>
           </div>
 
@@ -378,7 +376,7 @@ export function AnalysisView({
 
         <div className="analiz-baslat-cubugu">
           <div><span><UsersRound size={17} /> {selectedPersonas.length} persona</span><span><Quote size={17} /> {sourceText.length.toLocaleString("tr-TR")} karakter</span><span><Scale size={17} /> 4 aşama</span></div>
-          <button className="birincil-buton buyuk" disabled={submitting || uploading || !sourceText.trim() || selectedPersonas.length < 2 || connections.length === 0}>
+          <button className="birincil-buton buyuk" disabled={submitting || uploading || (!sourceText.trim() && !artifactId) || !caseId || selectedPersonas.length < 2 || connections.length === 0}>
             {submitting ? <LoaderCircle size={18} className="donen" /> : <BrainCircuit size={18} />}
             {submitting ? "Konsey sıraya alınıyor…" : "Konseyi çalıştır"}
           </button>

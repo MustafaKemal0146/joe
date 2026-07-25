@@ -5,6 +5,12 @@
 dist
 node_modules
 .venv
+backend/.venv
+backend/.pytest_cache
+backend/data
+backend/joe_backend.egg-info
+backend/test-*.db
+uv.lock
 .tmp
 imports
 __pycache__

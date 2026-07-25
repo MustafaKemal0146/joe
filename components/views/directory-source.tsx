@@ -48,7 +48,7 @@ export function DirectorySource({
   async function refreshCorpora() {
     const items = await joeApi.corpora();
     setCorpora(items);
-    setSelectedCorpusId((current) => current || items[0]?.id || "");
+    setSelectedCorpusId((current) => items.some((item) => item.id === current) ? current : "");
   }
 
   async function openDirectory(path: string) {
@@ -74,7 +74,7 @@ export function DirectorySource({
         if (!active) return;
         setStatus(nextStatus);
         setCorpora(corpusItems);
-        setSelectedCorpusId(corpusItems[0]?.id || "");
+        setSelectedCorpusId("");
         if (nextStatus.available) setBrowse(await joeApi.browseImports("."));
       } catch (caught) {
         if (active) setError(readableError(caught));
@@ -99,7 +99,10 @@ export function DirectorySource({
   }, [selectedCorpus]);
 
   async function indexCurrent() {
-    if (!browse) return;
+    if (!browse || !caseId) {
+      setError("Dizini indekslemek için önce bir vaka seçmelisin.");
+      return;
+    }
     setIndexing(true);
     setError(null);
     try {
@@ -107,7 +110,7 @@ export function DirectorySource({
       const created = await joeApi.createCorpus({
         name: `${label} indeksi`,
         relative_path: browse.path,
-        case_id: caseId || null,
+        case_id: caseId,
       });
       await refreshCorpora();
       setSelectedCorpusId(created.id);

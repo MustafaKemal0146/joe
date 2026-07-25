@@ -20,6 +20,8 @@ Requires-Dist: pymupdf<2,>=1.26
 Requires-Dist: python-docx<2,>=1.2
 Requires-Dist: charset-normalizer<4,>=3.4
 Requires-Dist: sherlock-project==0.16.0
+Requires-Dist: maigret==0.6.3
+Requires-Dist: alembic<2,>=1.15
 Provides-Extra: test
 Requires-Dist: pytest<9,>=8.4; extra == "test"
 Requires-Dist: pytest-asyncio<2,>=1.1; extra == "test"

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models import (
@@ -47,7 +49,12 @@ def import_instagram_archive(db: Session, batch_id: str) -> None:
     db.commit()
 
     # Profil kaydı
-    if manifest.profile_username:
+    if manifest.profile_username and not db.scalar(
+        select(ImportedProfile).where(
+            ImportedProfile.import_batch_id == batch_id,
+            ImportedProfile.username == manifest.profile_username,
+        )
+    ):
         profile = ImportedProfile(
             import_batch_id=batch_id,
             username=manifest.profile_username,
@@ -58,6 +65,7 @@ def import_instagram_archive(db: Session, batch_id: str) -> None:
 
     inbox = root / "your_instagram_activity" / "messages" / "inbox"
     total_messages = 0
+    parse_errors: list[dict[str, str]] = []
 
     if inbox.exists():
         for conv_dir in sorted(inbox.iterdir()):
@@ -65,7 +73,17 @@ def import_instagram_archive(db: Session, batch_id: str) -> None:
                 continue
             try:
                 conv = parse_conversation(conv_dir)
-            except Exception:
+            except Exception as exc:
+                parse_errors.append({"path": str(conv_dir), "message": str(exc)[:300]})
+                continue
+
+            existing_conversation = db.scalar(
+                select(ImportedConversation).where(
+                    ImportedConversation.import_batch_id == batch_id,
+                    ImportedConversation.source_conversation_id == conv.conversation_id,
+                )
+            )
+            if existing_conversation:
                 continue
 
             db_conv = ImportedConversation(
@@ -111,8 +129,14 @@ def import_instagram_archive(db: Session, batch_id: str) -> None:
 
             # Her 500 mesajda bir commit
             if total_messages % 500 == 0:
+                batch.heartbeat_at = datetime.now(UTC)
                 db.commit()
 
     batch.total_messages = total_messages
+    batch.import_summary = {
+        "idempotent": True,
+        "parse_errors": parse_errors[:200],
+        "source_root": str(root),
+    }
     batch.status = JobStatus.completed.value
     db.commit()

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -12,22 +14,28 @@ from sqlalchemy.orm import Session, selectinload
 from .artifacts import ArtifactError, ArtifactService
 from .config import get_settings
 from .corpus import CorpusError, CorpusService
-from .db import get_db
-from .events import event_stream
+from .db import SessionLocal, get_db
 from .models import (
     AnalysisEvent,
     AnalysisSession,
     AnalysisStageRun,
+    AnalysisSourceItem,
+    AnalysisSourcePackage,
+    Artifact,
     Case,
     CaseChatMessage,
     CaseChatSession,
     Corpus,
+    EvidenceItem,
     ImportBatch,
     ImportedConversation,
     ImportedMessage,
     ImportedProfile,
     JobStatus,
     OsintRun,
+    OsintRunEvent,
+    OsintFinding,
+    PageSnapshot,
     ProviderConnection,
 )
 from .osint.planner import build_manual_plan
@@ -38,6 +46,7 @@ from .providers.client import ProviderClient, ProviderError
 from .schemas import (
     AnalysisCreate,
     AnalysisRead,
+    AnalysisSourceInput,
     ArtifactRead,
     CaseCreate,
     CaseRead,
@@ -60,6 +69,7 @@ from .schemas import (
     OsintPlanRequest,
     OsintRunCreate,
     OsintRunRead,
+    PageAnalysisCreate,
     ProviderConnectionCreate,
     ProviderConnectionRead,
 )
@@ -255,6 +265,52 @@ def create_case(body: CaseCreate, db: Session = Depends(get_db)) -> Case:
     return case
 
 
+@router.get("/cases/{case_id}/workspace")
+def case_workspace(case_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
+    """Vaka dosyasının bütün çalışma kayıtlarını tek kalıcı noktadan döndürür."""
+    case = _get_case(db, case_id)
+    analyses = list(
+        db.scalars(
+            select(AnalysisSession)
+            .where(AnalysisSession.case_id == case_id)
+            .options(selectinload(AnalysisSession.turns))
+            .order_by(AnalysisSession.updated_at.desc())
+            .limit(100)
+        ).all()
+    )
+    runs = list(
+        db.scalars(
+            select(OsintRun)
+            .where(OsintRun.case_id == case_id)
+            .order_by(OsintRun.updated_at.desc())
+            .limit(100)
+        ).all()
+    )
+    corpora = list(
+        db.scalars(
+            select(Corpus)
+            .where(Corpus.case_id == case_id)
+            .order_by(Corpus.updated_at.desc())
+            .limit(100)
+        ).all()
+    )
+    imports = list(
+        db.scalars(
+            select(ImportBatch)
+            .where(ImportBatch.case_id == case_id)
+            .order_by(ImportBatch.updated_at.desc())
+            .limit(100)
+        ).all()
+    )
+    return {
+        "case": CaseRead.model_validate(case).model_dump(mode="json"),
+        "analyses": [AnalysisRead.model_validate(item).model_dump(mode="json") for item in analyses],
+        "osint_runs": [OsintRunRead.model_validate(item).model_dump(mode="json") for item in runs],
+        "corpora": [CorpusRead.model_validate(item).model_dump(mode="json") for item in corpora],
+        "imports": [ImportBatchRead.model_validate(item).model_dump(mode="json") for item in imports],
+    }
+
+
 @router.get("/analyses", response_model=list[AnalysisRead])
 def list_analyses(db: Session = Depends(get_db)) -> list[AnalysisSession]:
     return list(
@@ -287,8 +343,83 @@ def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> Anal
         raise HTTPException(status_code=422, detail="En az bir AI sağlayıcı bağlantısı seçilmeli.")
     if body.case_id:
         _get_case(db, body.case_id)
-    session = AnalysisSession(**body.model_dump(), mode="council")
+    source_items = list(body.source_items)
+    if body.artifact_ids:
+        artifacts = list(
+            db.scalars(select(Artifact).where(Artifact.id.in_(body.artifact_ids))).all()
+        )
+        found_ids = {artifact.id for artifact in artifacts}
+        missing = [artifact_id for artifact_id in body.artifact_ids if artifact_id not in found_ids]
+        if missing:
+            raise HTTPException(status_code=404, detail="Seçilen dosyalardan biri bulunamadı.")
+        for artifact in artifacts:
+            if artifact.case_id not in {None, body.case_id}:
+                raise HTTPException(status_code=422, detail="Dosya seçilen vakaya bağlı değil.")
+            content = artifact.extracted_text or (
+                f"Görsel kaynak: {artifact.original_name}. OCR metni bulunamadı; "
+                "görsel, görsel destekli sağlayıcıya aktarılmalıdır."
+            )
+            source_items.append(
+                AnalysisSourceInput(
+                    source_type="visual" if artifact.media_type.startswith("image/") else artifact.extractor,
+                    source_ref=artifact.id,
+                    source_label=artifact.original_name,
+                    content=content,
+                )
+            )
+    if not source_items and body.source_text.strip():
+        source_items = [
+            AnalysisSourceInput(
+                source_type=body.source_type,
+                source_ref="inline",
+                source_label="Kullanıcının seçtiği içerik",
+                content=body.source_text.strip(),
+            )
+        ]
+    if not source_items:
+        raise HTTPException(
+            status_code=422,
+            detail="Analiz için metin, dosya, görsel, arşiv veya indekslenmiş kaynak seçilmeli.",
+        )
+
+    rendered_sources = []
+    total_chars = 0
+    for item in source_items:
+        remaining = max(0, 120_000 - total_chars)
+        content = item.content[:remaining]
+        if not content.strip():
+            continue
+        rendered_sources.append(f"### {item.source_label}\n{content}")
+        total_chars += len(content)
+        if total_chars >= 120_000:
+            break
+    if not rendered_sources:
+        raise HTTPException(status_code=422, detail="Seçilen kaynaklardan analiz içeriği çıkarılamadı.")
+
+    payload = body.model_dump(exclude={"source_items", "artifact_ids"})
+    payload["source_text"] = "\n\n".join(rendered_sources)
+    if len(source_items) > 1:
+        payload["source_type"] = "mixed"
+    session = AnalysisSession(**payload, mode="council")
     db.add(session)
+    db.flush()
+    package = AnalysisSourcePackage(analysis_session_id=session.id, version=1)
+    db.add(package)
+    db.flush()
+    for sequence, item in enumerate(source_items):
+        if sequence >= len(rendered_sources):
+            break
+        db.add(
+            AnalysisSourceItem(
+                package_id=package.id,
+                source_type=item.source_type,
+                source_ref=item.source_ref,
+                source_label=item.source_label,
+                content=item.content[:120_000],
+                content_hash=hashlib.sha256(item.content.encode("utf-8")).hexdigest(),
+                sequence=sequence,
+            )
+        )
     db.commit()
     db.refresh(session)
     return session
@@ -370,6 +501,50 @@ def get_osint_run(run_id: str, db: Session = Depends(get_db)) -> OsintRun:
     return run
 
 
+@router.post("/osint/findings/{finding_id}/page-analysis")
+async def analyze_osint_page(
+    finding_id: str,
+    body: PageAnalysisCreate,
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    finding = db.get(OsintFinding, finding_id)
+    if not finding:
+        raise HTTPException(status_code=404, detail="OSINT bulgusu bulunamadı.")
+    snapshot = db.scalar(
+        select(PageSnapshot)
+        .where(PageSnapshot.finding_id == finding_id)
+        .order_by(PageSnapshot.created_at.desc())
+        .limit(1)
+    )
+    if not snapshot:
+        raise HTTPException(status_code=422, detail="Bu bağlantı için sayfa gözlemi bulunamadı.")
+    connection = _get_connection(db, body.provider_connection_id)
+    prompt = (
+        "Aşağıdaki açık kaynak sayfa gözlemini incele. Yalnız gözlenen metadata ve "
+        "metne dayan; hesabın kesin olarak aynı kişiye ait olduğunu iddia etme. "
+        "Yanıtı Türkçe, nötr ve kanıt sınırlarını belirterek ver.\n\n"
+        f"URL: {snapshot.url}\nBAŞLIK: {snapshot.title or 'yok'}\n"
+        f"SAYFA METNİ:\n{(snapshot.page_text or '')[:settings.max_evidence_chars]}"
+    )
+    try:
+        response = await _provider_client(connection).chat(
+            "Sen Joe OSINT sayfa gözlem yardımcısısın; teşhis ve kesin kimlik kararı üretme.",
+            prompt,
+            temperature=0.1,
+            structured=False,
+        )
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    snapshot.ai_analysis = {
+        "text": response.text,
+        "model": response.model,
+        "usage": response.usage,
+        "analyzed_at": datetime.now(UTC).isoformat(),
+    }
+    db.commit()
+    return {"finding_id": finding_id, "snapshot_id": snapshot.id, "analysis": snapshot.ai_analysis}
+
+
 @router.get("/analyses/{analysis_id}/stages")
 def get_analysis_stages(analysis_id: str, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     session = db.get(AnalysisSession, analysis_id)
@@ -394,32 +569,42 @@ def get_analysis_stages(analysis_id: str, db: Session = Depends(get_db)) -> list
 
 
 @router.get("/analyses/{analysis_id}/events")
-async def analysis_events_endpoint(analysis_id: str, since: int = Query(default=0), db: Session = Depends(get_db)):
+async def analysis_events_endpoint(
+    analysis_id: str,
+    since: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
     session = db.get(AnalysisSession, analysis_id)
     if not session:
         raise HTTPException(status_code=404, detail="Analiz oturumu bulunamadı.")
 
     async def event_generator():
-        # Kaçırılan event'leri gönder
-        missed = db.scalars(
-            select(AnalysisEvent)
-            .where(AnalysisEvent.analysis_session_id == analysis_id, AnalysisEvent.sequence > since)
-            .order_by(AnalysisEvent.sequence)
-        ).all()
-        for evt in missed:
-            yield f"data: {json.dumps({'event_type': evt.event_type, 'payload': evt.payload, 'sequence': evt.sequence})}\n\n"
-        # Polling ile yeni event'leri kontrol et
-        last_seq = missed[-1].sequence if missed else since
+        last_seq = since
         while True:
-            await asyncio.sleep(1.5)
-            new_events = db.scalars(
-                select(AnalysisEvent)
-                .where(AnalysisEvent.analysis_session_id == analysis_id, AnalysisEvent.sequence > last_seq)
-                .order_by(AnalysisEvent.sequence)
-            ).all()
-            for evt in new_events:
-                yield f"data: {json.dumps({'event_type': evt.event_type, 'payload': evt.payload, 'sequence': evt.sequence})}\n\n"
-                last_seq = evt.sequence
+            await asyncio.sleep(settings.worker_poll_seconds)
+            with SessionLocal() as stream_db:
+                new_events = stream_db.scalars(
+                    select(AnalysisEvent)
+                    .where(
+                        AnalysisEvent.analysis_session_id == analysis_id,
+                        AnalysisEvent.sequence > last_seq,
+                    )
+                    .order_by(AnalysisEvent.sequence)
+                ).all()
+                payloads = [
+                    {
+                        "event_type": evt.event_type,
+                        "payload": evt.payload,
+                        "sequence": evt.sequence,
+                    }
+                    for evt in new_events
+                ]
+            if not payloads:
+                yield ": heartbeat\n\n"
+                continue
+            for payload in payloads:
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                last_seq = payload["sequence"]
 
     return StreamingResponse(
         event_generator(),
@@ -429,25 +614,41 @@ async def analysis_events_endpoint(analysis_id: str, since: int = Query(default=
 
 
 @router.get("/osint/runs/{run_id}/events")
-async def osint_run_events_endpoint(run_id: str, since: int = Query(default=0)):
+async def osint_run_events_endpoint(
+    run_id: str,
+    since: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+):
+    if not db.get(OsintRun, run_id):
+        raise HTTPException(status_code=404, detail="OSINT çalışması bulunamadı.")
+
     async def event_generator():
-        queue = await event_stream.subscribe(run_id)
-        try:
-            # Önce kaçırılan event'leri gönder
-            missed = await event_stream.replay_since(run_id, since)
-            for evt in missed:
-                yield f"data: {json.dumps(evt)}\n\n"
-            # Canlı event'ler
-            while True:
-                try:
-                    data = await asyncio.wait_for(queue.get(), timeout=25)
-                    yield f"data: {data}\n\n"
-                except asyncio.TimeoutError:
-                    yield ": heartbeat\n\n"
-        except asyncio.CancelledError:
-            pass
-        finally:
-            event_stream.unsubscribe(run_id, queue)
+        last_seq = since
+        while True:
+            await asyncio.sleep(settings.worker_poll_seconds)
+            with SessionLocal() as stream_db:
+                new_events = stream_db.scalars(
+                    select(OsintRunEvent)
+                    .where(
+                        OsintRunEvent.osint_run_id == run_id,
+                        OsintRunEvent.sequence > last_seq,
+                    )
+                    .order_by(OsintRunEvent.sequence)
+                ).all()
+                payloads = [
+                    {
+                        "event_type": evt.event_type,
+                        "payload": evt.payload,
+                        "sequence": evt.sequence,
+                    }
+                    for evt in new_events
+                ]
+            if not payloads:
+                yield ": heartbeat\n\n"
+                continue
+            for payload in payloads:
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                last_seq = payload["sequence"]
 
     return StreamingResponse(
         event_generator(),
@@ -460,7 +661,10 @@ async def osint_run_events_endpoint(run_id: str, since: int = Query(default=0)):
 async def upload_artifact(
     file: UploadFile = File(...),
     case_id: str | None = Form(default=None),
+    db: Session = Depends(get_db),
 ) -> object:
+    if case_id:
+        _get_case(db, case_id)
     try:
         return await artifact_service.ingest(file, case_id)
     except ArtifactError as exc:
@@ -524,9 +728,11 @@ def search_corpus(corpus_id: str, body: CorpusSearchRequest) -> dict[str, object
 
 @router.post("/imports", response_model=ImportBatchRead, status_code=status.HTTP_202_ACCEPTED)
 def create_import(body: ImportBatchCreate, db: Session = Depends(get_db)) -> ImportBatch:
-    if body.case_id:
-        _get_case(db, body.case_id)
-    import_root = str(settings.import_root / body.import_root) if not body.import_root.startswith("/") else body.import_root
+    _get_case(db, body.case_id)
+    try:
+        import_root = str(corpus_service.resolve_directory(body.import_root))
+    except CorpusError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     batch = ImportBatch(
         import_root=import_root,
         source_type=body.source_type,
@@ -619,6 +825,8 @@ def list_import_profiles(batch_id: str, db: Session = Depends(get_db)) -> list[I
 @router.post("/cases/{case_id}/chat/sessions", response_model=CaseChatSessionRead, status_code=status.HTTP_201_CREATED)
 def create_chat_session(case_id: str, body: CaseChatSessionCreate, db: Session = Depends(get_db)) -> CaseChatSession:
     _get_case(db, case_id)
+    if body.provider_connection_id:
+        _get_connection(db, body.provider_connection_id)
     session = CaseChatSession(
         case_id=case_id,
         scope_type=body.scope_type,
@@ -643,7 +851,7 @@ def list_chat_sessions(case_id: str, db: Session = Depends(get_db)) -> list[Case
 
 
 @router.post("/cases/{case_id}/chat/sessions/{session_id}/messages", response_model=CaseChatMessageRead, status_code=status.HTTP_201_CREATED)
-def send_chat_message(
+async def send_chat_message(
     case_id: str,
     session_id: str,
     body: CaseChatMessageCreate,
@@ -653,21 +861,63 @@ def send_chat_message(
     if not session or session.case_id != case_id:
         raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı.")
 
-    # Kullanıcı mesajını kaydet
+    connection_id = session.provider_connection_id
+    if not connection_id:
+        raise HTTPException(status_code=422, detail="Vaka sohbeti için bir AI sağlayıcısı seçilmeli.")
+    connection = _get_connection(db, connection_id)
+
+    evidence_rows = list(
+        db.scalars(
+            select(EvidenceItem)
+            .where(EvidenceItem.case_id == case_id)
+            .order_by(EvidenceItem.created_at)
+            .limit(200)
+        ).all()
+    )
+    if not evidence_rows:
+        raise HTTPException(status_code=422, detail="Bu vaka için sohbet edilecek K* kanıtı bulunamadı.")
+    evidence_text = "\n\n".join(
+        f"[{item.evidence_key}] {item.content}" for item in evidence_rows
+    )[: settings.max_evidence_chars]
+
+    # Kullanıcı mesajını kaydet; provider başarısız olursa bu kayıt korunur,
+    # fakat sahte assistant cevabı yazılmaz.
     user_msg = CaseChatMessage(
         session_id=session_id,
         role="user",
         content=body.content,
     )
     db.add(user_msg)
+    db.commit()
+    system_prompt = (
+        "Sen Joe vaka sohbeti asistanısın. Yalnızca verilen K* kanıtlarını kullan. "
+        "Her maddi iddianın sonuna gerçek bir [K1] benzeri kanıt kimliği ekle. "
+        "Kanıt yetersizse bunu açıkça söyle; klinik tanı, tehlikelilik veya sosyal "
+        "puan üretme. Tarihsel personayı taklit etme. Türkçe, nötr ve kısa yaz."
+    )
+    user_prompt = f"KANITLAR\n{evidence_text}\n\nKULLANICI MESAJI\n{body.content}"
+    try:
+        response = await _provider_client(connection).chat(
+            system_prompt,
+            user_prompt,
+            temperature=0.1,
+            structured=False,
+        )
+    except ProviderError as exc:
+        db.commit()
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    # AI yanıtı (varsa sağlayıcı ile)
-    assistant_content = "Bu özellik henüz AI entegrasyonu bekliyor. Mesajınız kaydedildi."
+    assistant_content = response.text.strip()
+    valid_keys = {item.evidence_key for item in evidence_rows}
+    cited = sorted(
+        {match for match in re.findall(r"\[(K\d+)\]", assistant_content) if match in valid_keys}
+    )
     assistant_msg = CaseChatMessage(
         session_id=session_id,
         role="assistant",
         content=assistant_content,
-        cited_evidence=[],
+        cited_evidence=cited,
+        provider_metadata={"model": response.model, "usage": response.usage},
     )
     db.add(assistant_msg)
     db.commit()

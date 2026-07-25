@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import ipaddress
+import socket
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -46,6 +48,31 @@ class ProviderClient:
             raise ProviderError("api_key_required", f"{profile.name} için API anahtarı gerekli.")
         if not self.base_url:
             raise ProviderError("base_url_required", "Bu sağlayıcı için bir temel URL gerekli.")
+        self._validate_base_url()
+
+    def _validate_base_url(self) -> None:
+        """Reject malformed/SSRF-prone provider endpoints before any request."""
+        parsed = urlparse(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ProviderError("invalid_base_url", "Sağlayıcı temel URL'si http/https olmalıdır.")
+        if parsed.username or parsed.password:
+            raise ProviderError("invalid_base_url", "Sağlayıcı URL'sinde kullanıcı bilgisi kullanılamaz.")
+        host = parsed.hostname.lower().rstrip(".")
+        # Ollama is intentionally a local protocol; Docker users commonly point
+        # it at the compose service name, which resolves to a private container IP.
+        if self.profile.protocol == "ollama":
+            return
+        try:
+            addresses = {
+                item[4][0]
+                for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+            }
+        except OSError as exc:
+            raise ProviderError("invalid_base_url", "Sağlayıcı adresi çözümlenemedi.") from exc
+        for address in addresses:
+            ip = ipaddress.ip_address(address)
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                raise ProviderError("unsafe_base_url", "Özel veya yerel ağ sağlayıcı adreslerine izin verilmiyor.")
 
     async def chat(
         self,
@@ -54,18 +81,22 @@ class ProviderClient:
         *,
         temperature: float = 0.2,
         structured: bool = True,
+        attachments: list[dict[str, str]] | None = None,
     ) -> ProviderResponse:
+        attachments = attachments or []
+        if attachments and not self.profile.capabilities.vision:
+            raise ProviderError("vision_unsupported", "Seçili sağlayıcı görsel analizi desteklemiyor.")
         protocol = self.profile.protocol
         if protocol == "openai-chat":
-            return await self._openai_chat(system, user, temperature, structured)
+            return await self._openai_chat(system, user, temperature, structured, attachments)
         if protocol == "anthropic":
-            return await self._anthropic(system, user, temperature)
+            return await self._anthropic(system, user, temperature, attachments)
         if protocol == "gemini":
-            return await self._gemini(system, user, temperature)
+            return await self._gemini(system, user, temperature, attachments)
         if protocol == "ollama":
-            return await self._ollama(system, user, temperature, structured)
+            return await self._ollama(system, user, temperature, structured, attachments)
         if protocol == "azure-openai":
-            return await self._azure_openai(system, user, temperature, structured)
+            return await self._azure_openai(system, user, temperature, structured, attachments)
         raise ProviderError("unsupported_protocol", f"Desteklenmeyen protokol: {protocol}")
 
     async def list_models(self) -> list[str]:
@@ -89,7 +120,7 @@ class ProviderClient:
                     )
                 if protocol == "gemini":
                     response = await client.get(
-                        f"{self.base_url}/models", params={"key": self.api_key}
+                        f"{self.base_url}/models", headers={"x-goog-api-key": self.api_key or ""}
                     )
                     self._raise_for_status(response)
                     return sorted(
@@ -102,13 +133,18 @@ class ProviderClient:
         return []
 
     async def _openai_chat(
-        self, system: str, user: str, temperature: float, structured: bool
+        self,
+        system: str,
+        user: str,
+        temperature: float,
+        structured: bool,
+        attachments: list[dict[str, str]],
     ) -> ProviderResponse:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {"role": "user", "content": self._openai_content(user, attachments)},
             ],
             "temperature": temperature,
         }
@@ -133,14 +169,18 @@ class ProviderClient:
         )
 
     async def _anthropic(
-        self, system: str, user: str, temperature: float
+        self,
+        system: str,
+        user: str,
+        temperature: float,
+        attachments: list[dict[str, str]],
     ) -> ProviderResponse:
         data = await self._post_json(
             f"{self.base_url}/messages",
             {
                 "model": self.model,
                 "system": system,
-                "messages": [{"role": "user", "content": user}],
+                "messages": [{"role": "user", "content": self._anthropic_content(user, attachments)}],
                 "max_tokens": int(self.extra_config.get("max_tokens", 4096)),
                 "temperature": temperature,
             },
@@ -161,20 +201,25 @@ class ProviderClient:
             raw_id=data.get("id"),
         )
 
-    async def _gemini(self, system: str, user: str, temperature: float) -> ProviderResponse:
+    async def _gemini(
+        self,
+        system: str,
+        user: str,
+        temperature: float,
+        attachments: list[dict[str, str]],
+    ) -> ProviderResponse:
         url = f"{self.base_url}/models/{quote(self.model, safe='-_.')}:generateContent"
         data = await self._post_json(
             url,
             {
                 "systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": user}]}],
+                "contents": [{"role": "user", "parts": self._gemini_parts(user, attachments)}],
                 "generationConfig": {
                     "temperature": temperature,
                     "responseMimeType": "application/json",
                 },
             },
-            {"content-type": "application/json"},
-            params={"key": self.api_key},
+            {"content-type": "application/json", "x-goog-api-key": self.api_key or ""},
         )
         try:
             parts = data["candidates"][0]["content"]["parts"]
@@ -188,13 +233,22 @@ class ProviderClient:
         )
 
     async def _ollama(
-        self, system: str, user: str, temperature: float, structured: bool
+        self,
+        system: str,
+        user: str,
+        temperature: float,
+        structured: bool,
+        attachments: list[dict[str, str]],
     ) -> ProviderResponse:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {
+                    "role": "user",
+                    "content": user,
+                    **({"images": [item["data"] for item in attachments]} if attachments else {}),
+                },
             ],
             "stream": False,
             "options": {"temperature": temperature},
@@ -214,7 +268,12 @@ class ProviderClient:
         return ProviderResponse(text=text, model=data.get("model", self.model), usage=usage)
 
     async def _azure_openai(
-        self, system: str, user: str, temperature: float, structured: bool
+        self,
+        system: str,
+        user: str,
+        temperature: float,
+        structured: bool,
+        attachments: list[dict[str, str]],
     ) -> ProviderResponse:
         deployment = str(self.extra_config.get("deployment") or self.model)
         api_version = str(self.extra_config.get("api_version") or "2024-10-21")
@@ -225,7 +284,7 @@ class ProviderClient:
         payload: dict[str, Any] = {
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {"role": "user", "content": self._openai_content(user, attachments)},
             ],
             "temperature": temperature,
         }
@@ -266,6 +325,52 @@ class ProviderClient:
             raise ProviderError("invalid_json", "Sağlayıcı geçerli JSON döndürmedi.") from exc
 
     @staticmethod
+    def _openai_content(user: str, attachments: list[dict[str, str]]) -> str | list[dict[str, Any]]:
+        if not attachments:
+            return user
+        return [
+            {"type": "text", "text": user},
+            *[
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{item['media_type']};base64,{item['data']}"
+                    },
+                }
+                for item in attachments
+            ],
+        ]
+
+    @staticmethod
+    def _anthropic_content(user: str, attachments: list[dict[str, str]]) -> str | list[dict[str, Any]]:
+        if not attachments:
+            return user
+        return [
+            {"type": "text", "text": user},
+            *[
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": item["media_type"],
+                        "data": item["data"],
+                    },
+                }
+                for item in attachments
+            ],
+        ]
+
+    @staticmethod
+    def _gemini_parts(user: str, attachments: list[dict[str, str]]) -> list[dict[str, Any]]:
+        return [
+            {"text": user},
+            *[
+                {"inline_data": {"mime_type": item["media_type"], "data": item["data"]}}
+                for item in attachments
+            ],
+        ]
+
+    @staticmethod
     def _raise_for_status(response: httpx.Response) -> None:
         if response.is_success:
             return
@@ -284,4 +389,3 @@ class ProviderClient:
         elif response.status_code == 429:
             message = "Sağlayıcı hız veya kota sınırına ulaştı."
         raise ProviderError("provider_http_error", message[:500], response.status_code)
-

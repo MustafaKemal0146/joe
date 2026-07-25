@@ -49,6 +49,15 @@ class ProviderConnectionRead(ORMModel):
     updated_at: datetime
 
 
+class AnalysisSourceInput(BaseModel):
+    """Analiz başlatılırken seçilen değişmez kaynak kesiti."""
+
+    source_type: str = Field(min_length=2, max_length=40)
+    source_ref: str = Field(min_length=1, max_length=700)
+    source_label: str = Field(min_length=1, max_length=500)
+    content: str = Field(min_length=1, max_length=120_000)
+
+
 class AnalysisCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -56,6 +65,8 @@ class AnalysisCreate(BaseModel):
     case_id: str = Field(min_length=2, max_length=36)
     source_text: str = Field(default="", max_length=120_000)
     source_type: str = Field(default="text", max_length=50)
+    source_items: list["AnalysisSourceInput"] = Field(default_factory=list, max_length=200)
+    artifact_ids: list[str] = Field(default_factory=list, max_length=20)
     selected_personas: list[str] = Field(min_length=2, max_length=13)
     default_provider_connection_id: str | None = None
     provider_routes: dict[str, str] = Field(default_factory=dict)
@@ -116,6 +127,10 @@ class OsintRunRead(ORMModel):
     updated_at: datetime
 
 
+class PageAnalysisCreate(BaseModel):
+    provider_connection_id: str = Field(min_length=2, max_length=36)
+
+
 class ArtifactRead(ORMModel):
     id: str
     original_name: str
@@ -150,7 +165,7 @@ class ImportBrowseRead(BaseModel):
 class CorpusCreate(BaseModel):
     name: str = Field(min_length=2, max_length=220)
     relative_path: str = Field(default=".", max_length=1000)
-    case_id: str | None = None
+    case_id: str = Field(min_length=2, max_length=36)
 
 
 class CorpusRead(ORMModel):
@@ -203,7 +218,7 @@ class DashboardSummary(BaseModel):
 
 class ImportBatchCreate(BaseModel):
     import_root: str = Field(min_length=1, max_length=1000)
-    case_id: str | None = None
+    case_id: str = Field(min_length=2, max_length=36)
     source_type: Literal["instagram"] = "instagram"
 
 

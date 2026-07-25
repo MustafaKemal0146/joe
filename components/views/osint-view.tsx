@@ -5,7 +5,6 @@ import {
   Binoculars,
   CheckCircle2,
   Clock3,
-  ExternalLink,
   Fingerprint,
   FolderKanban,
   Globe2,
@@ -16,7 +15,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { joeApi, readableError } from "../../lib/api";
-import type { CaseRecord, OsintPlan, OsintRun } from "../../lib/types";
+import type { CaseRecord, OsintRun } from "../../lib/types";
 import { DurumRozeti, HataKutusu, SayfaBasligi } from "../ui";
 
 
@@ -24,7 +23,6 @@ export function OsintView({ cases, onChanged }: { cases: CaseRecord[]; onChanged
   const [queryType, setQueryType] = useState<"username" | "full_name">("username");
   const [query, setQuery] = useState("");
   const [caseId, setCaseId] = useState("");
-  const [plan, setPlan] = useState<OsintPlan | null>(null);
   const [run, setRun] = useState<OsintRun | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +33,6 @@ export function OsintView({ cases, onChanged }: { cases: CaseRecord[]; onChanged
       try {
         const updated = await joeApi.osintRun(run.id);
         setRun(updated);
-        if (updated.result?.manual_plan) setPlan(updated.result.manual_plan);
       } catch (caught) {
         setError(readableError(caught));
       }
@@ -54,8 +51,6 @@ export function OsintView({ cases, onChanged }: { cases: CaseRecord[]; onChanged
     setError(null);
     setRun(null);
     try {
-      const nextPlan = await joeApi.osintPlan({ query, query_type: queryType });
-      setPlan(nextPlan);
       const nextRun = await joeApi.createOsintRun({
         query,
         query_type: queryType,

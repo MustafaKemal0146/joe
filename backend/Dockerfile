@@ -18,6 +18,8 @@ RUN python -c "import tomllib; data=tomllib.load(open('pyproject.toml','rb')); p
     && pip install --no-cache-dir -r /tmp/joe-requirements.txt \
     && rm /tmp/joe-requirements.txt
 COPY backend/app ./app
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/alembic ./alembic
 
 RUN useradd --create-home --uid 10001 joe \
     && mkdir -p /data/artifacts /data/secrets \

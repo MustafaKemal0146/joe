@@ -456,7 +456,15 @@ klinisyen gibi kullanma.
             challenge_focus="Konseyin kültürel normları doğal gerçek veya bireysel patoloji gibi sunmasına itiraz et; iktidarı tek bir kötü aktöre indirgemeyi de reddet.",
         ),
     ]
-    return {entry.id: entry for entry in entries}
+    catalog = {entry.id: entry for entry in entries}
+    if len(catalog) != len(entries) or len(catalog) < 2:
+        raise RuntimeError("Persona kataloğunda yinelenen veya eksik kayıt var.")
+    for entry in catalog.values():
+        if not entry.analysis_questions or not entry.challenge_focus.strip():
+            raise RuntimeError(f"Persona sözleşmesi eksik: {entry.id}")
+        if "KANIT SÖZLEŞMESİ" not in entry.system_prompt:
+            raise RuntimeError(f"Persona kanıt sözleşmesini taşımıyor: {entry.id}")
+    return catalog
 
 
 def list_personas() -> list[PersonaDefinition]:

@@ -162,8 +162,7 @@ class Worker:
     async def _run_import(self, batch_id: str) -> None:
         logger.info("İçe aktarma başladı: %s", batch_id)
         try:
-            with SessionLocal() as db:
-                await asyncio.to_thread(import_instagram_archive, db, batch_id)
+            await asyncio.to_thread(self._import_sync, batch_id)
         except Exception as exc:
             logger.exception("İçe aktarma beklenmeyen hatayla durdu: %s", batch_id)
             with SessionLocal.begin() as db:
@@ -172,6 +171,13 @@ class Worker:
                     batch.status = JobStatus.failed.value
                     batch.error_code = "import_error"
                     batch.error_message = str(exc)[:1000]
+
+    @staticmethod
+    def _import_sync(batch_id: str) -> None:
+        # SQLAlchemy Session thread-safe değildir; Session'ı to_thread dışında
+        # oluşturmak yerine import thread'inin içinde açıyoruz.
+        with SessionLocal() as db:
+            import_instagram_archive(db, batch_id)
 
     def _fail_analysis(self, analysis_id: str, code: str, message: str) -> None:
         with SessionLocal.begin() as db:

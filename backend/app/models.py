@@ -128,6 +128,9 @@ class AnalysisSession(Base):
     turns: Mapped[list["CouncilTurn"]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="CouncilTurn.created_at"
     )
+    source_packages: Mapped[list["AnalysisSourcePackage"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan", order_by="AnalysisSourcePackage.version"
+    )
 
 
 class CouncilTurn(Base):
@@ -212,6 +215,7 @@ class OsintRunEvent(Base):
 
     __table_args__ = (
         Index("ix_osint_run_events_seq", "osint_run_id", "sequence"),
+        UniqueConstraint("osint_run_id", "sequence"),
     )
 
 
@@ -226,6 +230,8 @@ class AnalysisEvent(Base):
     event_type: Mapped[str] = mapped_column(String(60), index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (UniqueConstraint("analysis_session_id", "sequence"),)
 
 
 class AnalysisStageRun(Base):
@@ -352,6 +358,8 @@ class ImportedProfile(Base):
     profile_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+    __table_args__ = (UniqueConstraint("import_batch_id", "username"),)
+
 
 class ImportedConversation(Base):
     __tablename__ = "imported_conversations"
@@ -374,6 +382,8 @@ class ImportedConversation(Base):
     participants: Mapped[list["ConversationParticipant"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
+
+    __table_args__ = (UniqueConstraint("import_batch_id", "source_conversation_id"),)
 
 
 class ConversationParticipant(Base):
@@ -434,6 +444,7 @@ class AnalysisSourcePackage(Base):
     items: Mapped[list["AnalysisSourceItem"]] = relationship(
         back_populates="package", cascade="all, delete-orphan"
     )
+    session: Mapped[AnalysisSession] = relationship(back_populates="source_packages")
 
 
 class AnalysisSourceItem(Base):

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import mimetypes
+from pathlib import Path
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import selectinload
 
 from ..config import get_settings
@@ -12,8 +15,10 @@ from ..db import SessionLocal
 from ..models import (
     AnalysisEvent,
     AnalysisSession,
+    AnalysisSourcePackage,
     AnalysisStageRun,
     CouncilTurn,
+    Artifact,
     EvidenceItem,
     JobStatus,
     ProviderConnection,
@@ -47,12 +52,6 @@ class CouncilEngine:
         self.registry = get_provider_registry()
         self.vault = SecretVault()
         self._semaphore = asyncio.Semaphore(4)
-        self._event_seq: int = 0
-
-    def _next_seq(self) -> int:
-        self._event_seq += 1
-        return self._event_seq
-
     def _record_stage(
         self,
         session_id: str,
@@ -78,9 +77,18 @@ class CouncilEngine:
 
     def _record_event(self, session_id: str, event_type: str, payload: dict[str, Any]) -> None:
         with SessionLocal.begin() as db:
+            db.get(AnalysisSession, session_id, with_for_update=True)
+            next_seq = int(
+                db.scalar(
+                    select(func.coalesce(func.max(AnalysisEvent.sequence), 0) + 1).where(
+                        AnalysisEvent.analysis_session_id == session_id
+                    )
+                )
+                or 1
+            )
             db.add(AnalysisEvent(
                 analysis_session_id=session_id,
-                sequence=self._next_seq(),
+                sequence=next_seq,
                 event_type=event_type,
                 payload=payload,
             ))
@@ -94,12 +102,13 @@ class CouncilEngine:
         if not segments:
             raise CouncilRunError("evidence_required", "Analiz edilecek kanıt üretilemedi.")
         evidence_text = render_evidence_pack(segments)
+        attachments = self._load_attachments(session)
         valid_evidence_ids = {segment.key for segment in segments}
         self._replace_evidence(session, segments)
 
         self._set_progress(session_id, "bağımsız_görüşler")
         self._record_event(session_id, "phase_started", {"phase": "bağımsız_görüşler", "persona_count": len(session.selected_personas)})
-        independent = await self._run_independent(session, evidence_text)
+        independent = await self._run_independent(session, evidence_text, attachments)
         successes = {key: value for key, value in independent.items() if value.get("ok")}
         if len(successes) < 2:
             errors = [value.get("error", "Bilinmeyen hata") for value in independent.values()]
@@ -110,10 +119,10 @@ class CouncilEngine:
 
         self._set_progress(session_id, "çapraz_sorgu")
         self._record_event(session_id, "phase_started", {"phase": "çapraz_sorgu"})
-        challenges = await self._run_challenges(session, evidence_text, successes)
+        challenges = await self._run_challenges(session, evidence_text, successes, attachments)
         self._set_progress(session_id, "görüş_revizyonu")
         self._record_event(session_id, "phase_started", {"phase": "görüş_revizyonu"})
-        revisions = await self._run_revisions(session, evidence_text, successes, challenges)
+        revisions = await self._run_revisions(session, evidence_text, successes, challenges, attachments)
         final_persona_outputs: dict[str, dict[str, Any]] = {}
         for persona_id, original in successes.items():
             revision = revisions.get(persona_id)
@@ -124,7 +133,7 @@ class CouncilEngine:
         self._set_progress(session_id, "ortak_sentez")
         self._record_event(session_id, "phase_started", {"phase": "ortak_sentez"})
         synthesis, synthesis_meta = await self._run_synthesis(
-            session, evidence_text, final_persona_outputs
+            session, evidence_text, final_persona_outputs, attachments
         )
         audit = audit_payload(synthesis, valid_evidence_ids)
 
@@ -152,7 +161,10 @@ class CouncilEngine:
         return result
 
     async def _run_independent(
-        self, session: AnalysisSession, evidence_text: str
+        self,
+        session: AnalysisSession,
+        evidence_text: str,
+        attachments: list[dict[str, str]],
     ) -> dict[str, dict[str, Any]]:
         async def one(persona_id: str) -> tuple[str, dict[str, Any]]:
             persona = get_persona(persona_id)
@@ -166,6 +178,7 @@ class CouncilEngine:
                         persona.system_prompt,
                         analysis_prompt(persona, evidence_text),
                         temperature=0.25,
+                        attachments=attachments,
                     )
                 parsed = parse_structured(response.text, PersonaAnalysis).model_dump()
                 meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}
@@ -185,6 +198,7 @@ class CouncilEngine:
         session: AnalysisSession,
         evidence_text: str,
         analyses: dict[str, dict[str, Any]],
+        attachments: list[dict[str, str]],
     ) -> dict[str, dict[str, Any]]:
         async def one(persona_id: str) -> tuple[str, dict[str, Any]]:
             persona = get_persona(persona_id)
@@ -199,6 +213,7 @@ class CouncilEngine:
                         persona.system_prompt,
                         challenge_prompt(persona, evidence_text, peer_payloads),
                         temperature=0.15,
+                        attachments=attachments,
                     )
                 parsed = parse_structured(response.text, PersonaChallenge).model_dump()
                 meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}
@@ -219,6 +234,7 @@ class CouncilEngine:
         evidence_text: str,
         analyses: dict[str, dict[str, Any]],
         challenges: dict[str, dict[str, Any]],
+        attachments: list[dict[str, str]],
     ) -> dict[str, dict[str, Any]]:
         async def one(persona_id: str) -> tuple[str, dict[str, Any]]:
             persona = get_persona(persona_id)
@@ -242,6 +258,7 @@ class CouncilEngine:
                             incoming,
                         ),
                         temperature=0.2,
+                        attachments=attachments,
                     )
                 parsed = parse_structured(response.text, PersonaRevision).model_dump()
                 meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}
@@ -261,6 +278,7 @@ class CouncilEngine:
         session: AnalysisSession,
         evidence_text: str,
         outputs: dict[str, dict[str, Any]],
+        attachments: list[dict[str, str]],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         connection_id = session.default_provider_connection_id
         if not connection_id:
@@ -273,6 +291,7 @@ class CouncilEngine:
                 MODERATOR_SYSTEM,
                 synthesis_prompt(evidence_text, outputs),
                 temperature=0.1,
+                attachments=attachments,
             )
             parsed = parse_structured(response.text, CouncilSynthesis).model_dump()
             meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}
@@ -304,11 +323,46 @@ class CouncilEngine:
             session = db.scalar(
                 select(AnalysisSession)
                 .where(AnalysisSession.id == session_id)
-                .options(selectinload(AnalysisSession.turns))
+                .options(
+                    selectinload(AnalysisSession.turns),
+                    selectinload(AnalysisSession.source_packages).selectinload(
+                        AnalysisSourcePackage.items
+                    ),
+                )
             )
             if not session:
                 raise CouncilRunError("session_not_found", "Analiz oturumu bulunamadı.")
             return session
+
+    @staticmethod
+    def _load_attachments(session: AnalysisSession) -> list[dict[str, str]]:
+        """Görsel kaynakları güvenli boyut sınırıyla provider'a aktarılabilir hâle getirir."""
+        latest = session.source_packages[-1] if session.source_packages else None
+        if not latest:
+            return []
+        attachments: list[dict[str, str]] = []
+        with SessionLocal() as db:
+            for item in latest.items:
+                if item.source_type != "visual":
+                    continue
+                artifact = db.get(Artifact, item.source_ref)
+                if not artifact:
+                    continue
+                path = Path(artifact.storage_path)
+                if not path.is_file() or artifact.size_bytes > 12 * 1024 * 1024:
+                    continue
+                try:
+                    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+                except OSError:
+                    continue
+                attachments.append(
+                    {
+                        "media_type": artifact.media_type or mimetypes.guess_type(path.name)[0] or "image/jpeg",
+                        "data": encoded,
+                        "label": artifact.original_name,
+                    }
+                )
+        return attachments
 
     def _replace_evidence(self, session: AnalysisSession, segments: list[Any]) -> None:
         with SessionLocal.begin() as db:

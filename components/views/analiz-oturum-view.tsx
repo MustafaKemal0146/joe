@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { joeApi } from "@/lib/api";
-import type { AnalysisSession } from "@/lib/types";
+import type { AnalysisSession, CouncilTurn } from "@/lib/types";
 import { DurumRozeti, SayfaBasligi } from "@/components/ui";
 import { LoaderCircle } from "lucide-react";
 
@@ -77,7 +77,7 @@ export function AnalizOturumView({ analysisId }: { analysisId: string }) {
           {session.turns && session.turns.length > 0 && (
             <div className="mt-4 space-y-2">
               <h4 className="text-sm font-medium text-zinc-600">Persona Görüşleri ({session.turns.length})</h4>
-              {session.turns.map((turn: any) => (
+              {session.turns.map((turn: CouncilTurn) => (
                 <div key={turn.id} className="p-3 bg-white border rounded text-xs">
                   <span className="font-medium">{turn.persona_id}</span>
                   <span className="text-zinc-400 ml-2">· {turn.phase}</span>
