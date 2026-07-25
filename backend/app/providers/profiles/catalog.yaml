@@ -7,6 +7,16 @@
   aliases: [chatgpt]
   capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
 
+- id: openai-codex
+  name: OpenAI Codex (API)
+  protocol: openai-chat
+  default_base_url: https://api.openai.com/v1
+  model_hint: OpenAI projesindeki Codex uyumlu model kimliği
+  docs_url: https://developers.openai.com/codex/cli/
+  aliases: [codex]
+  notes: Codex masaüstü/CLI oturumu bu yerel sunucuya aktarılmaz; bağlantı yalnızca OpenAI Platform API anahtarı ile kurulur.
+  capabilities: {structured_output: true, tools: true, vision: true, model_listing: true}
+
 - id: anthropic
   name: Anthropic
   protocol: anthropic

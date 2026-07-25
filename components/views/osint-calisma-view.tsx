@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { joeApi } from "@/lib/api";
 import type { OsintFinding, OsintRun } from "@/lib/types";
 import { DurumRozeti, SayfaBasligi } from "@/components/ui";
-import { LoaderCircle, ExternalLink } from "lucide-react";
+import { LoaderCircle, ExternalLink, ArrowLeft } from "lucide-react";
+import Link from "next/link";
 
 export function OsintCalismaView({ runId }: { runId: string }) {
   const [run, setRun] = useState<OsintRun | null>(null);
@@ -48,6 +49,7 @@ export function OsintCalismaView({ runId }: { runId: string }) {
         eyebrow="OSINT KEŞİF"
         title={`Araştırma: ${run.query}`}
         description={`Tür: ${run.query_type === "username" ? "Kullanıcı adı" : "Tam ad"} · Durum: ${run.status}`}
+        actions={<Link href={run.case_id ? `/vakalar/${run.case_id}` : "/osint"} className="ikincil-buton"><ArrowLeft size={16} /> Geri dön</Link>}
       />
       <div className="mt-4">
         <DurumRozeti durum={run.status} />

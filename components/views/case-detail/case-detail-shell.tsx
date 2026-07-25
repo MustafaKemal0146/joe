@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { joeApi } from "@/lib/api";
 import type { CaseRecord, CaseWorkspace } from "@/lib/types";
 import { AlertTriangle, CheckCircle2, FileText, FolderOpen, LoaderCircle, Search } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 
 export function CaseDetailShell({ caseId }: { caseId: string }) {
   const [caseRecord, setCaseRecord] = useState<CaseRecord | null>(null);
@@ -32,7 +34,8 @@ export function CaseDetailShell({ caseId }: { caseId: string }) {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Vaka başlığı */}
-      <div className="mb-6">
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
         <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">VAKA DOSYASI</p>
         <h1 className="text-2xl font-bold text-zinc-900 mt-1">{caseRecord.name}</h1>
         {caseRecord.subject_label && (
@@ -44,6 +47,8 @@ export function CaseDetailShell({ caseId }: { caseId: string }) {
           </span>
           <span>Oluşturma: {new Date(caseRecord.created_at).toLocaleDateString("tr-TR")}</span>
         </div>
+        </div>
+        <Link href="/" className="ikincil-buton shrink-0"><ArrowLeft size={16} /> Vaka masasına dön</Link>
       </div>
 
       {/* Sekmeler */}
@@ -59,8 +64,6 @@ function CaseDetailTabs({ caseId, caseName }: { caseId: string; caseName: string
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
     joeApi.caseWorkspace(caseId)
       .then(setWorkspace)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "Vaka çalışma alanı okunamadı."))
