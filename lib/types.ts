@@ -103,6 +103,7 @@ export interface AnalysisSession {
   selected_personas: string[];
   provider_routes: Record<string, string>;
   default_provider_connection_id: string | null;
+  synthesis_provider_connection_id: string | null;
   result: AnalysisResult | null;
   error_code: string | null;
   error_message: string | null;
@@ -231,6 +232,46 @@ export interface ImportBrowse {
   path: string;
   parent_path: string | null;
   entries: ImportEntry[];
+}
+
+export interface ImportBatch {
+  id: string;
+  case_id: string | null;
+  import_root: string;
+  source_type: string;
+  status: string;
+  archive_owner_username: string | null;
+  archive_owner_display_name: string | null;
+  archive_owner_confirmed: boolean;
+  total_conversations: number;
+  total_messages: number;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImportedConversation {
+  id: string;
+  source_conversation_id: string;
+  title: string | null;
+  message_count: number;
+  participant_names: string[];
+  earliest_message_at: string | null;
+  latest_message_at: string | null;
+  created_at: string;
+}
+
+export interface ImportedMessage {
+  id: string;
+  sender_name: string;
+  timestamp_ms: number;
+  content: string | null;
+  share_link: string | null;
+  has_media: boolean;
+  source_file: string;
+  sequence: number;
+  created_at: string;
 }
 
 export interface CorpusRecord {

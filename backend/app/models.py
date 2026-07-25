@@ -115,6 +115,9 @@ class AnalysisSession(Base):
     default_provider_connection_id: Mapped[str | None] = mapped_column(
         ForeignKey("provider_connections.id", ondelete="SET NULL")
     )
+    synthesis_provider_connection_id: Mapped[str | None] = mapped_column(
+        ForeignKey("provider_connections.id", ondelete="SET NULL")
+    )
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_code: Mapped[str | None] = mapped_column(String(80))
     error_message: Mapped[str | None] = mapped_column(Text)

@@ -7,7 +7,7 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
@@ -265,6 +265,15 @@ def create_case(body: CaseCreate, db: Session = Depends(get_db)) -> Case:
     return case
 
 
+@router.delete("/cases/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_case(case_id: str, db: Session = Depends(get_db)) -> Response:
+    """Vaka ile ona ait kanıt/oturum kayıtlarını geri döndürülemez biçimde kaldırır."""
+    case = _get_case(db, case_id)
+    db.delete(case)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/cases/{case_id}/workspace")
 def case_workspace(case_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     """Vaka dosyasının bütün çalışma kayıtlarını tek kalıcı noktadan döndürür."""
@@ -332,6 +341,8 @@ def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> Anal
             raise HTTPException(status_code=422, detail=f"Bilinmeyen persona: {persona_id}") from exc
     if body.default_provider_connection_id:
         _get_connection(db, body.default_provider_connection_id)
+    if body.synthesis_provider_connection_id:
+        _get_connection(db, body.synthesis_provider_connection_id)
     for persona_id, connection_id in body.provider_routes.items():
         if persona_id not in body.selected_personas:
             raise HTTPException(

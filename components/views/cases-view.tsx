@@ -1,6 +1,6 @@
 "use client";
 
-import { FileKey2, FolderKanban, Plus, ShieldCheck, UserRoundSearch } from "lucide-react";
+import { FileKey2, FolderKanban, Plus, ShieldCheck, Trash2, UserRoundSearch } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { joeApi, readableError } from "../../lib/api";
 import type { CaseRecord } from "../../lib/types";
@@ -17,6 +17,7 @@ export function CasesView({
   const [formOpen, setFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     subject_label: "",
@@ -42,6 +43,21 @@ export function CasesView({
       setError(readableError(caught));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function removeCase(item: CaseRecord) {
+    const confirmed = window.confirm(`“${item.name}” vakası ve ona bağlı kanıt/oturum kayıtları kalıcı olarak silinecek. Devam edilsin mi?`);
+    if (!confirmed) return;
+    setDeletingId(item.id);
+    setError(null);
+    try {
+      await joeApi.deleteCase(item.id);
+      await onChanged();
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -118,20 +134,13 @@ export function CasesView({
       ) : (
         <div className="vaka-grid">
           {cases.map((item) => (
-            <a href={`/vakalar/${item.id}`} className="vaka-karti" key={item.id} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+            <article className="vaka-karti" key={item.id}>
               <div className="vaka-karti-ust">
                 <div className="vaka-ikon"><FolderKanban size={20} /></div>
-                <span className="durum-rozeti durum-active">Etkin</span>
+                <div className="flex items-center gap-2"><span className="durum-rozeti durum-active">Etkin</span><button type="button" className="ikon-buton tehlike" onClick={() => void removeCase(item)} disabled={deletingId === item.id} aria-label={`${item.name} vakasını sil`}><Trash2 size={16} /></button></div>
               </div>
-              <h2>{item.name}</h2>
-              <div className="vaka-ozne"><UserRoundSearch size={15} /> {item.subject_label || "Özne etiketi girilmedi"}</div>
-              <p>{item.purpose || "Amaç ve kapsam notu eklenmedi."}</p>
-              <div className="vaka-yetki">
-                <FileKey2 size={15} />
-                <span>{item.authorization_note ? "Yetki notu kayıtlı" : "Yetki notu bekliyor"}</span>
-              </div>
-              <footer><span>Güncelleme</span><KisaTarih value={item.updated_at} /></footer>
-            </a>
+              <a href={`/vakalar/${item.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}><h2>{item.name}</h2><div className="vaka-ozne"><UserRoundSearch size={15} /> {item.subject_label || "Özne etiketi girilmedi"}</div><p>{item.purpose || "Amaç ve kapsam notu eklenmedi."}</p><div className="vaka-yetki"><FileKey2 size={15} /><span>{item.authorization_note ? "Yetki notu kayıtlı" : "Yetki notu bekliyor"}</span></div><footer><span>Güncelleme</span><KisaTarih value={item.updated_at} /></footer></a>
+            </article>
           ))}
         </div>
       )}

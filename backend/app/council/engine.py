@@ -280,7 +280,8 @@ class CouncilEngine:
         outputs: dict[str, dict[str, Any]],
         attachments: list[dict[str, str]],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        connection_id = session.default_provider_connection_id
+        # Konsey moderatörü ayrı seçilebilir; seçilmezse varsayılan rota korunur.
+        connection_id = session.synthesis_provider_connection_id or session.default_provider_connection_id
         if not connection_id:
             connection_id = next(iter(session.provider_routes.values()), None)
         if not connection_id:

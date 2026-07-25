@@ -69,6 +69,7 @@ class AnalysisCreate(BaseModel):
     artifact_ids: list[str] = Field(default_factory=list, max_length=20)
     selected_personas: list[str] = Field(min_length=2, max_length=13)
     default_provider_connection_id: str | None = None
+    synthesis_provider_connection_id: str | None = None
     provider_routes: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("selected_personas")
@@ -95,6 +96,7 @@ class AnalysisRead(ORMModel):
     selected_personas: list[str]
     provider_routes: dict[str, str]
     default_provider_connection_id: str | None
+    synthesis_provider_connection_id: str | None
     result: dict[str, Any] | None
     error_code: str | None
     error_message: str | None

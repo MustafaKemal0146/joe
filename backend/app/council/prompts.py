@@ -74,6 +74,11 @@ YÖNLENDİRİCİ SORULAR
 KANIT PAKETİ
 {evidence}
 
+Bu merceğin kendine özgü kavramlarını açıkça kullan: genel-geçer bir yorum yazma.
+Kanıt yeterliyse üç ila altı somut gözlem üret; her gözlemde doğrudan alıntılanan
+K* kanıtını, kuramsal bağını ve makul alternatif açıklamayı ayrı ver. Veri kısa
+veya bağlamsızsa sayıyı zorlamadan neden çekimser kaldığını belirt.
+
 Yalnızca geçerli JSON döndür. Markdown kullanma. Tam şema:
 {json.dumps(ANALYSIS_SCHEMA, ensure_ascii=False, indent=2)}
 """
@@ -140,6 +145,10 @@ def synthesis_prompt(
 ) -> str:
     return f"""Aşağıdaki gözden geçirilmiş konsey görüşlerinden kanıta dayalı ortak sonuç üret.
 Farklılıkları silme; önemli muhalefeti görünür tut. Kuramsal yorumları olgu gibi yazma.
+`executive_summary` en az üç anlaşılır paragraftan oluşsun: önce kanıtta görülen
+temalar, sonra hangi merceklerin nerede birleşip ayrıldığı, son olarak verinin
+sınırları ve yapılmayan çıkarımlar. Bu açıklama, bütün persona görüşlerini,
+itirazları ve revizyonları okuyarak yazılan üst düzey genel yorumdur.
 
 KANIT PAKETİ
 {evidence}
@@ -150,4 +159,3 @@ GÖZDEN GEÇİRİLMİŞ GÖRÜŞLER
 Yalnızca geçerli JSON döndür. Markdown kullanma. Tam şema:
 {json.dumps(SYNTHESIS_SCHEMA, ensure_ascii=False, indent=2)}
 """
-

@@ -12,6 +12,9 @@ import type {
   ProviderConnection,
   ProviderProfile,
   ImportBrowse,
+  ImportBatch,
+  ImportedConversation,
+  ImportedMessage,
   ImportStatus,
 } from "./types";
 
@@ -72,6 +75,7 @@ export const joeApi = {
   caseWorkspace: (id: string) => request<CaseWorkspace>(`/cases/${id}/workspace`),
   createCase: (body: Record<string, unknown>) =>
     request<CaseRecord>("/cases", { method: "POST", body: JSON.stringify(body) }),
+  deleteCase: (id: string) => request<void>(`/cases/${id}`, { method: "DELETE" }),
   analyses: () => request<AnalysisSession[]>("/analyses"),
   analysis: (id: string) => request<AnalysisSession>(`/analyses/${id}`),
   createAnalysis: (body: Record<string, unknown>) =>
@@ -93,6 +97,10 @@ export const joeApi = {
   importStatus: () => request<ImportStatus>("/imports/status"),
   browseImports: (path = ".") =>
     request<ImportBrowse>(`/imports/browse?path=${encodeURIComponent(path)}`),
+  imports: () => request<ImportBatch[]>("/imports"),
+  importConversations: (batchId: string) => request<ImportedConversation[]>(`/imports/${batchId}/conversations`),
+  importMessages: (batchId: string, conversationId: string, limit = 1000) =>
+    request<ImportedMessage[]>(`/imports/${batchId}/conversations/${conversationId}/messages?limit=${limit}`),
   corpora: () => request<CorpusRecord[]>("/corpora"),
   corpus: (id: string) => request<CorpusRecord>(`/corpora/${id}`),
   createCorpus: (body: { name: string; relative_path: string; case_id: string }) =>

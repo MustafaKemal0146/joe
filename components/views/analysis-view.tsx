@@ -10,7 +10,6 @@ import {
   CircleDotDashed,
   ClipboardCheck,
   FileArchive,
-  FileImage,
   FileText,
   FolderSearch,
   Layers3,
@@ -30,6 +29,9 @@ import { joeApi, readableError } from "../../lib/api";
 import type {
   AnalysisSession,
   CaseRecord,
+  ImportBatch,
+  ImportedConversation,
+  ImportedMessage,
   Gorunum,
   Persona,
   ProviderConnection,
@@ -67,10 +69,20 @@ export function AnalysisView({
   const [title, setTitle] = useState("");
   const [sourceText, setSourceText] = useState("");
   const [sourceType, setSourceType] = useState("text");
-  const [sourcePanel, setSourcePanel] = useState<"content" | "directory">("content");
+  const [sourcePanel, setSourcePanel] = useState<"content" | "whatsapp" | "instagram" | "directory">("content");
+  const [whatsappTarget, setWhatsappTarget] = useState("");
+  const [whatsappParticipants, setWhatsappParticipants] = useState<string[]>([]);
+  const [instagramImports, setInstagramImports] = useState<ImportBatch[]>([]);
+  const [instagramConversations, setInstagramConversations] = useState<ImportedConversation[]>([]);
+  const [instagramMessages, setInstagramMessages] = useState<ImportedMessage[]>([]);
+  const [instagramBatchId, setInstagramBatchId] = useState("");
+  const [instagramConversationId, setInstagramConversationId] = useState("");
+  const [instagramTarget, setInstagramTarget] = useState("");
+  const [instagramLoading, setInstagramLoading] = useState(false);
   const [caseId, setCaseId] = useState("");
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [defaultConnection, setDefaultConnection] = useState("");
+  const [synthesisConnection, setSynthesisConnection] = useState("");
   const [advancedRoutes, setAdvancedRoutes] = useState(false);
   const [routes, setRoutes] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
@@ -108,6 +120,11 @@ export function AnalysisView({
   const effectiveDefaultConnection = defaultConnection || connections[0]?.id || "";
   const selectedConnection = connections.find((item) => item.id === effectiveDefaultConnection);
   const selectedProfile = profiles.find((item) => item.id === selectedConnection?.provider_id);
+  const analysisText = sourceType === "whatsapp" && whatsappTarget
+    ? `ANALİZ ODAĞI: ${whatsappTarget}\n\nAşağıdaki WhatsApp konuşmasında yalnızca “${whatsappTarget}” adlı katılımcının söylem örüntülerini incele. Diğer katılımcılar bağlam sağlar; onlar hakkında çıkarım yapma.\n\n${sourceText}`
+    : sourceType === "instagram" && instagramTarget
+      ? `ANALİZ ODAĞI: ${instagramTarget}\n\nAşağıdaki Instagram konuşmasında yalnızca “${instagramTarget}” adlı katılımcının söylem örüntülerini incele. Diğer katılımcılar bağlam sağlar; onlar hakkında çıkarım yapma.\n\n${sourceText}`
+    : sourceText;
 
   function togglePersona(id: string) {
     setSelectedPersonas((current) =>
@@ -133,11 +150,88 @@ export function AnalysisView({
     }
   }
 
+  async function loadWhatsApp(file: File) {
+    const content = await file.text();
+    const people = Array.from(new Set(Array.from(content.matchAll(/^\d{1,2}\.\d{1,2}\.\d{4}\s+\d{1,2}:\d{2}\s+-\s+([^:\n]+):/gm)).map((match) => match[1].trim())));
+    setSourceText(content);
+    setSourceType("whatsapp");
+    setWhatsappParticipants(people);
+    setWhatsappTarget(people[0] || "");
+    setUploadedName(file.name);
+    if (!title) setTitle(file.name.replace(/\.[^.]+$/, "") + " konuşma analizi");
+  }
+
+  async function loadInstagramImports() {
+    setInstagramLoading(true);
+    setError(null);
+    try {
+      const imports = await joeApi.imports();
+      setInstagramImports(imports.filter((item) => item.case_id === caseId && item.source_type === "instagram" && item.status === "completed"));
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setInstagramLoading(false);
+    }
+  }
+
+  async function selectInstagramImport(batchId: string) {
+    setInstagramBatchId(batchId);
+    setInstagramConversationId("");
+    setInstagramConversations([]);
+    setInstagramMessages([]);
+    setInstagramTarget("");
+    setSourceText("");
+    if (!batchId) return;
+    setInstagramLoading(true);
+    try {
+      setInstagramConversations(await joeApi.importConversations(batchId));
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setInstagramLoading(false);
+    }
+  }
+
+  async function selectInstagramConversation(conversationId: string) {
+    setInstagramConversationId(conversationId);
+    setInstagramMessages([]);
+    setInstagramTarget("");
+    setSourceText("");
+    if (!conversationId || !instagramBatchId) return;
+    setInstagramLoading(true);
+    try {
+      const messages = await joeApi.importMessages(instagramBatchId, conversationId, 1000);
+      const conversation = instagramConversations.find((item) => item.id === conversationId);
+      const ordered = [...messages].sort((left, right) => left.timestamp_ms - right.timestamp_ms);
+      setInstagramMessages(ordered);
+      setInstagramTarget(conversation?.participant_names[0] ?? "");
+      setSourceText(ordered.map((item) => {
+        const time = new Date(item.timestamp_ms).toLocaleString("tr-TR");
+        const detail = item.content ?? (item.has_media ? "<Medya içeriği>" : "<Metin içeriği yok>");
+        return `${time} — ${item.sender_name}: ${detail}`;
+      }).join("\n"));
+      setSourceType("instagram");
+      if (!title && conversation?.title) setTitle(`${conversation.title} konuşma analizi`);
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setInstagramLoading(false);
+    }
+  }
+
   async function startAnalysis(event: FormEvent) {
     event.preventDefault();
     setError(null);
     if (selectedPersonas.length < 2) {
       setError("Konsey için en az iki persona seçmelisin.");
+      return;
+    }
+    if (sourceType === "whatsapp" && !whatsappTarget) {
+      setError("WhatsApp konuşması için analiz edilecek katılımcıyı seçmelisin.");
+      return;
+    }
+    if (sourceType === "instagram" && (!instagramConversationId || !instagramTarget)) {
+      setError("Instagram konuşması için konuşmayı ve analiz edilecek katılımcıyı seçmelisin.");
       return;
     }
     if (!effectiveDefaultConnection && Object.keys(routes).length === 0) {
@@ -156,11 +250,12 @@ export function AnalysisView({
       const created = await joeApi.createAnalysis({
         title: title || "Kuramsal konsey analizi",
         case_id: caseId,
-        source_text: sourceText,
+        source_text: analysisText,
         source_type: sourceType,
         artifact_ids: artifactId ? [artifactId] : [],
         selected_personas: selectedPersonas,
         default_provider_connection_id: effectiveDefaultConnection || null,
+        synthesis_provider_connection_id: synthesisConnection || effectiveDefaultConnection || null,
         provider_routes: selectedRoutes,
       });
       setSession(created);
@@ -185,6 +280,7 @@ export function AnalysisView({
         source_type: "council_followup",
         selected_personas: session.selected_personas,
         default_provider_connection_id: session.default_provider_connection_id,
+        synthesis_provider_connection_id: session.synthesis_provider_connection_id || session.default_provider_connection_id,
         provider_routes: session.provider_routes,
       });
       setFollowup("");
@@ -237,9 +333,9 @@ export function AnalysisView({
           </div>
 
           <div className="kaynak-tipleri">
-            <button type="button" className={sourcePanel === "content" && sourceType === "text" ? "aktif" : ""} onClick={() => { setSourcePanel("content"); setSourceType("text"); setUploadedName(null); }}><FileText size={16} /> Metin</button>
-            <button type="button" onClick={() => fileRef.current?.click()}><FileImage size={16} /> Ekran görüntüsü</button>
-            <button type="button" onClick={() => fileRef.current?.click()}><FileArchive size={16} /> Sohbet / arşiv</button>
+            <button type="button" className={sourcePanel === "content" ? "aktif" : ""} onClick={() => { setSourcePanel("content"); setSourceType("text"); }}><FileText size={16} /> İçerik</button>
+            <button type="button" className={sourcePanel === "whatsapp" ? "aktif" : ""} onClick={() => { setSourcePanel("whatsapp"); setSourceType("whatsapp"); }}><MessageSquareMore size={16} /> WhatsApp</button>
+            <button type="button" className={sourcePanel === "instagram" ? "aktif" : ""} onClick={() => { setSourcePanel("instagram"); setSourceType("instagram"); }}><FileArchive size={16} /> Instagram</button>
             <button type="button" className={sourcePanel === "directory" ? "aktif" : ""} onClick={() => setSourcePanel("directory")}><FolderSearch size={16} /> Yerel dizin</button>
             <input
               ref={fileRef}
@@ -269,6 +365,18 @@ export function AnalysisView({
                 setSourcePanel("content");
               }}
             />
+          ) : sourcePanel === "whatsapp" ? (
+            <div className="space-y-3"><p className="text-sm text-zinc-600">WhatsApp dışa aktarma `.txt` dosyasını seç. Joe önce katılımcıları çıkarır; analiz edilecek kişiyi sen belirlersin.</p><input type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadWhatsApp(file); event.currentTarget.value = ""; }} />{whatsappParticipants.length ? <label><span>Kim analiz edilecek?</span><select value={whatsappTarget} onChange={(event) => setWhatsappTarget(event.target.value)}><option value="">Katılımcı seç</option>{whatsappParticipants.map((person) => <option key={person} value={person}>{person}</option>)}</select></label> : null}{sourceText ? <textarea className="analiz-metni" maxLength={120000} value={sourceText} onChange={(event) => setSourceText(event.target.value)} /> : null}</div>
+          ) : sourcePanel === "instagram" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-zinc-600">Bu vakaya ait, tamamlanmış Instagram içe aktarımlarından gerçek konuşmayı seç. Joe katılımcıları çıkarır; analiz odağını sen belirlersin.</p>
+              <button className="buton-ikincil" type="button" onClick={() => void loadInstagramImports()} disabled={!caseId || instagramLoading}>{instagramLoading ? "Arşivler yükleniyor…" : "Bu vakanın arşivlerini yükle"}</button>
+              {!caseId ? <small>Önce aşağıdan vaka seç.</small> : null}
+              {instagramImports.length ? <label><span>İçe aktarma</span><select value={instagramBatchId} onChange={(event) => void selectInstagramImport(event.target.value)}><option value="">Arşiv seç</option>{instagramImports.map((item) => <option key={item.id} value={item.id}>{item.archive_owner_display_name || item.archive_owner_username || "Instagram arşivi"} — {item.total_conversations} konuşma</option>)}</select></label> : null}
+              {instagramConversations.length ? <label><span>Konuşma</span><select value={instagramConversationId} onChange={(event) => void selectInstagramConversation(event.target.value)}><option value="">Konuşma seç</option>{instagramConversations.map((item) => <option key={item.id} value={item.id}>{item.title || item.participant_names.join(", ") || "Adsız konuşma"} — {item.message_count} mesaj</option>)}</select></label> : null}
+              {instagramConversationId ? <label><span>Kim analiz edilecek?</span><select value={instagramTarget} onChange={(event) => setInstagramTarget(event.target.value)}><option value="">Katılımcı seç</option>{(instagramConversations.find((item) => item.id === instagramConversationId)?.participant_names ?? []).map((person) => <option key={person} value={person}>{person}</option>)}</select></label> : null}
+              {instagramMessages.length ? <small>{instagramMessages.length} gerçek mesaj analize hazırlandı; metin kanıt parçalarına dönüştürülecek.</small> : null}
+            </div>
           ) : (
             <>
               <textarea
@@ -345,6 +453,7 @@ export function AnalysisView({
             <label><span>Oturum başlığı</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Örn. İletişim örüntüsü analizi" /></label>
             <label><span>Vaka bağlantısı</span><select required value={caseId} onChange={(event) => setCaseId(event.target.value)}><option value="">Vaka seç</option>{cases.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <label className="tam-satir"><span>Varsayılan AI bağlantısı</span><select value={effectiveDefaultConnection} onChange={(event) => setDefaultConnection(event.target.value)}><option value="">Sağlayıcı seç</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.label} — {item.model}</option>)}</select></label>
+            <label className="tam-satir"><span>Konsey moderatörü (genel açıklama)</span><select value={synthesisConnection || effectiveDefaultConnection} onChange={(event) => setSynthesisConnection(event.target.value)}><option value="">Varsayılan bağlantıyı kullan</option>{connections.map((item) => <option key={item.id} value={item.id}>{item.label} — {item.model}</option>)}</select><small>Bu model tüm persona görüşlerini, itirazları ve revizyonları okuyup en üstteki genel açıklamayı üretir.</small></label>
           </div>
 
           {connections.length === 0 ? (
@@ -375,8 +484,8 @@ export function AnalysisView({
         {error ? <HataKutusu message={error} /> : null}
 
         <div className="analiz-baslat-cubugu">
-          <div><span><UsersRound size={17} /> {selectedPersonas.length} persona</span><span><Quote size={17} /> {sourceText.length.toLocaleString("tr-TR")} karakter</span><span><Scale size={17} /> 4 aşama</span></div>
-          <button className="birincil-buton buyuk" disabled={submitting || uploading || (!sourceText.trim() && !artifactId) || !caseId || selectedPersonas.length < 2 || connections.length === 0}>
+          <div><span><UsersRound size={17} /> {selectedPersonas.length} persona</span><span><Quote size={17} /> {analysisText.length.toLocaleString("tr-TR")} karakter</span><span><Scale size={17} /> 4 aşama</span></div>
+          <button className="birincil-buton buyuk" disabled={submitting || uploading || (!analysisText.trim() && !artifactId) || !caseId || selectedPersonas.length < 2 || connections.length === 0 || (sourceType === "whatsapp" && !whatsappTarget)}>
             {submitting ? <LoaderCircle size={18} className="donen" /> : <BrainCircuit size={18} />}
             {submitting ? "Konsey sıraya alınıyor…" : "Konseyi çalıştır"}
           </button>
