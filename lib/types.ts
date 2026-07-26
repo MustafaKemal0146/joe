@@ -108,9 +108,19 @@ export interface AnalysisSession {
   error_code: string | null;
   error_message: string | null;
   progress_phase: string | null;
+  heartbeat_at: string | null;
   created_at: string;
   updated_at: string;
   turns: CouncilTurn[];
+}
+
+export interface AnalysisStage {
+  phase: string;
+  persona_id: string | null;
+  status: "queued" | "running" | "completed" | "failed";
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
 }
 
 export interface SynthesisClaim {

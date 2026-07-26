@@ -386,6 +386,12 @@ class ProviderClient:
             pass
         if response.status_code in {401, 403}:
             message = "Sağlayıcı kimlik doğrulamasını reddetti. API anahtarını kontrol et."
+        elif response.status_code == 402 or "insufficient balance" in message.casefold():
+            raise ProviderError(
+                "provider_balance_exhausted",
+                "Sağlayıcı bakiyesi yetersiz. Bağlantının kredi/bakiye durumunu kontrol et.",
+                response.status_code,
+            )
         elif response.status_code == 429:
             message = "Sağlayıcı hız veya kota sınırına ulaştı."
         raise ProviderError("provider_http_error", message[:500], response.status_code)

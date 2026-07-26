@@ -1,5 +1,6 @@
 import type {
   AnalysisSession,
+  AnalysisStage,
   ArtifactRecord,
   CaseRecord,
   CaseWorkspace,
@@ -78,10 +79,13 @@ export const joeApi = {
   deleteCase: (id: string) => request<void>(`/cases/${id}`, { method: "DELETE" }),
   analyses: () => request<AnalysisSession[]>("/analyses"),
   analysis: (id: string) => request<AnalysisSession>(`/analyses/${id}`),
+  analysisStages: (id: string) => request<AnalysisStage[]>(`/analyses/${id}/stages`),
   createAnalysis: (body: Record<string, unknown>) =>
     request<AnalysisSession>("/analyses", { method: "POST", body: JSON.stringify(body) }),
   cancelAnalysis: (id: string) =>
     request<AnalysisSession>(`/analyses/${id}/cancel`, { method: "POST" }),
+  retryAnalysis: (id: string) =>
+    request<AnalysisSession>(`/analyses/${id}/retry`, { method: "POST" }),
   osintPlan: (body: { query: string; query_type: "username" | "full_name" }) =>
     request<OsintPlan>("/osint/plan", { method: "POST", body: JSON.stringify(body) }),
   osintRuns: () => request<OsintRun[]>("/osint/runs"),

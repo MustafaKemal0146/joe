@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { joeApi } from "@/lib/api";
+import { analysisSessionPath } from "@/lib/analysis-path";
 import type { CaseRecord, CaseWorkspace } from "@/lib/types";
 import { AlertTriangle, CheckCircle2, FileText, FolderOpen, LoaderCircle, Search } from "lucide-react";
 import Link from "next/link";
@@ -153,7 +154,7 @@ function OsintTab({ workspace }: { workspace: CaseWorkspace }) {
 
 function AnalysesTab({ workspace }: { workspace: CaseWorkspace }) {
   if (!workspace.analyses.length) return <Empty label="Bu vakaya bağlı analiz oturumu bulunmuyor." icon={<FileText size={18} />} />;
-  return <div className="space-y-3">{workspace.analyses.map((analysis) => <a key={analysis.id} href={`/analiz/oturum/${analysis.id}`} className="block p-4 bg-white border rounded hover:border-zinc-400">
+  return <div className="space-y-3">{workspace.analyses.map((analysis) => <a key={analysis.id} href={analysisSessionPath(analysis)} className="block p-4 bg-white border rounded hover:border-zinc-400">
     <div className="flex items-center justify-between"><strong>{analysis.title}</strong><span className="text-xs text-zinc-500">{analysis.status}</span></div>
     <p className="text-sm text-zinc-500 mt-1">{analysis.source_type} · {analysis.turns.length} konsey kaydı</p>
   </a>)}</div>;

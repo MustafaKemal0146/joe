@@ -201,7 +201,12 @@ class Worker:
                         AnalysisSession.heartbeat_at < cutoff,
                     ),
                 )
-                .values(status=JobStatus.queued.value, progress_phase="yeniden sıraya alındı")
+                .values(
+                    status=JobStatus.queued.value,
+                    progress_phase="yeniden sıraya alındı",
+                    error_code="worker_interrupted",
+                    error_message="Worker yeniden başladığı için konsey temiz biçimde tekrar sıraya alındı.",
+                )
             )
             db.execute(
                 update(OsintRun)

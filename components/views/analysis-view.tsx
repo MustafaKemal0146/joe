@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { joeApi, readableError } from "../../lib/api";
+import { analysisSessionPath } from "../../lib/analysis-path";
 import type {
   AnalysisSession,
   CaseRecord,
@@ -270,7 +271,7 @@ export function AnalysisView({
         synthesis_provider_connection_id: synthesisConnection || effectiveDefaultConnection || null,
         provider_routes: selectedRoutes,
       });
-      setSession(created);
+      window.location.assign(analysisSessionPath(created));
     } catch (caught) {
       setError(readableError(caught));
     } finally {
@@ -296,8 +297,7 @@ export function AnalysisView({
         provider_routes: session.provider_routes,
       });
       setFollowup("");
-      setSession(created);
-      setResultTab("konsey");
+      window.location.assign(analysisSessionPath(created));
     } catch (caught) {
       setError(readableError(caught));
     } finally {

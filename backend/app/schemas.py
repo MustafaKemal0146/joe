@@ -104,6 +104,7 @@ class AnalysisRead(ORMModel):
     error_code: str | None
     error_message: str | None
     progress_phase: str | None
+    heartbeat_at: datetime | None
     created_at: datetime
     updated_at: datetime
     turns: list[CouncilTurnRead] = Field(default_factory=list)

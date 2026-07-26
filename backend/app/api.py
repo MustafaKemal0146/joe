@@ -470,6 +470,56 @@ def cancel_analysis(analysis_id: str, db: Session = Depends(get_db)) -> Analysis
     return session
 
 
+@router.post("/analyses/{analysis_id}/retry", response_model=AnalysisRead)
+def retry_analysis(analysis_id: str, db: Session = Depends(get_db)) -> AnalysisSession:
+    session = db.scalar(
+        select(AnalysisSession)
+        .where(AnalysisSession.id == analysis_id)
+        .options(selectinload(AnalysisSession.source_packages).selectinload(AnalysisSourcePackage.items))
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Analiz oturumu bulunamadı.")
+    if session.status not in {JobStatus.failed.value, JobStatus.cancelled.value}:
+        raise HTTPException(status_code=409, detail="Yalnız başarısız veya iptal edilmiş analiz yeniden çalıştırılabilir.")
+    retried = AnalysisSession(
+        case_id=session.case_id,
+        title=f"{session.title} · yeniden",
+        mode=session.mode,
+        source_text=session.source_text,
+        source_type=session.source_type,
+        selected_personas=session.selected_personas,
+        provider_routes=session.provider_routes,
+        default_provider_connection_id=session.default_provider_connection_id,
+        synthesis_provider_connection_id=session.synthesis_provider_connection_id,
+        status=JobStatus.queued.value,
+    )
+    db.add(retried)
+    db.flush()
+    for source_package in session.source_packages:
+        cloned_package = AnalysisSourcePackage(
+            analysis_session_id=retried.id,
+            version=source_package.version,
+        )
+        db.add(cloned_package)
+        db.flush()
+        for item in source_package.items:
+            db.add(AnalysisSourceItem(
+                package_id=cloned_package.id,
+                source_type=item.source_type,
+                source_ref=item.source_ref,
+                source_label=item.source_label,
+                content=item.content,
+                content_hash=item.content_hash,
+                sequence=item.sequence,
+            ))
+    db.commit()
+    return db.scalar(
+        select(AnalysisSession)
+        .where(AnalysisSession.id == retried.id)
+        .options(selectinload(AnalysisSession.turns))
+    )
+
+
 @router.post("/osint/plan")
 def osint_plan(body: OsintPlanRequest) -> dict[str, object]:
     return build_manual_plan(body.query, body.query_type)
@@ -573,6 +623,7 @@ def get_analysis_stages(analysis_id: str, db: Session = Depends(get_db)) -> list
     ).all()
     return [
         {
+            "id": s.id,
             "phase": s.phase,
             "persona_id": s.persona_id,
             "status": s.status,
