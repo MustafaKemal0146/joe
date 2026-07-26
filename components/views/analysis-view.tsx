@@ -70,7 +70,8 @@ export function AnalysisView({
   const [title, setTitle] = useState("");
   const [sourceText, setSourceText] = useState("");
   const [sourceType, setSourceType] = useState("text");
-  const [sourcePanel, setSourcePanel] = useState<"content" | "whatsapp" | "instagram" | "directory">("content");
+  const [sourcePanel, setSourcePanel] = useState<"content" | "whatsapp" | "instagram">("content");
+  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [whatsappTarget, setWhatsappTarget] = useState("");
   const [whatsappParticipants, setWhatsappParticipants] = useState<string[]>([]);
   const [instagramImports, setInstagramImports] = useState<ImportBatch[]>([]);
@@ -95,6 +96,7 @@ export function AnalysisView({
   const [resultTab, setResultTab] = useState<"sonuc" | "konsey" | "kanit">("sonuc");
   const [followup, setFollowup] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const whatsappFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!session || !["queued", "running"].includes(session.status)) return;
@@ -346,7 +348,6 @@ export function AnalysisView({
             <button type="button" className={sourcePanel === "content" ? "aktif" : ""} onClick={() => { setSourcePanel("content"); setSourceType("text"); }}><FileText size={16} /> İçerik</button>
             <button type="button" className={sourcePanel === "whatsapp" ? "aktif" : ""} onClick={() => { setSourcePanel("whatsapp"); setSourceType("whatsapp"); }}><MessageSquareMore size={16} /> WhatsApp</button>
             <button type="button" className={sourcePanel === "instagram" ? "aktif" : ""} onClick={() => { setSourcePanel("instagram"); setSourceType("instagram"); }}><FileArchive size={16} /> Instagram</button>
-            <button type="button" className={sourcePanel === "directory" ? "aktif" : ""} onClick={() => setSourcePanel("directory")}><FolderSearch size={16} /> Yerel dizin</button>
             <input
               ref={fileRef}
               hidden
@@ -364,28 +365,24 @@ export function AnalysisView({
              <div className="yuklenen-dosya"><Paperclip size={16} /><div><strong>{uploadedName}</strong><span>{sourceText.trim() ? "Gerçek içerik çıkarıldı; istersen düzenleyebilirsin." : "Görsel kaynak hazır; seçili sağlayıcı vision desteğiyle incelenecek."}</span></div><button type="button" onClick={() => { setUploadedName(null); setArtifactId(null); setSourceText(""); setSourceType("text"); }} aria-label="Dosyayı kaldır"><X size={16} /></button></div>
           ) : null}
 
-          {sourcePanel === "directory" ? (
-            <DirectorySource
-              caseId={caseId}
-              onPrepared={(text, nextTitle) => {
-                setSourceText(text);
-                setSourceType("local_corpus");
-                setUploadedName("Dizin indeksinden seçilen içerik");
-                setTitle((current) => current || nextTitle);
-                setSourcePanel("content");
-              }}
-            />
-          ) : sourcePanel === "whatsapp" ? (
-            <div className="space-y-3"><p className="text-sm text-zinc-600">WhatsApp dışa aktarma `.txt` dosyasını seç. Joe önce katılımcıları çıkarır; analiz edilecek kişiyi sen belirlersin. Metin kanıt parçalarına ayrılır; kaynak sessizce kesilmez.</p><input type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadWhatsApp(file); event.currentTarget.value = ""; }} />{whatsappParticipants.length ? <label><span>Kim analiz edilecek?</span><select value={whatsappTarget} onChange={(event) => setWhatsappTarget(event.target.value)}><option value="">Katılımcı seç</option>{whatsappParticipants.map((person) => <option key={person} value={person}>{person}</option>)}</select></label> : null}{sourceText ? <textarea className="analiz-metni" maxLength={MAX_ANALYSIS_SOURCE_CHARS} value={sourceText} onChange={(event) => setSourceText(event.target.value)} /> : null}</div>
+          {sourcePanel === "whatsapp" ? (
+            <div className="source-workflow">
+              <div className="source-workflow-head"><span className="source-step">01</span><div><strong>WhatsApp konuşmasını içe aktar</strong><p>`.txt` dışa aktarımını seç. Joe katılımcıları çıkarır; analiz odağını sen belirlersin.</p></div></div>
+              <div className="source-dropzone">
+                <input ref={whatsappFileRef} className="source-file-input" type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadWhatsApp(file); event.currentTarget.value = ""; }} />
+                <span className="source-dropzone-icon"><Upload size={18} /></span><span><strong>WhatsApp dosyanı seç</strong><small>Yalnızca `.txt` · içerik yerelde işlenir</small></span><button type="button" className="birincil-buton" onClick={() => whatsappFileRef.current?.click()}>Dosya seç</button>
+              </div>
+              {whatsappParticipants.length ? <div className="source-ready"><CheckCircle2 size={17} /><div><strong>{uploadedName || "Konuşma"} hazır</strong><small>{whatsappParticipants.length} katılımcı bulundu. Analiz odağını seç.</small></div><label><span>Analiz odağı</span><select value={whatsappTarget} onChange={(event) => setWhatsappTarget(event.target.value)}><option value="">Katılımcı seç</option>{whatsappParticipants.map((person) => <option key={person} value={person}>{person}</option>)}</select></label></div> : <div className="source-hint">Dosya seçildiğinde katılımcılar burada görünür; ham sohbet sessizce kesilmez.</div>}
+              {sourceText ? <textarea className="analiz-metni" maxLength={MAX_ANALYSIS_SOURCE_CHARS} value={sourceText} onChange={(event) => setSourceText(event.target.value)} /> : null}
+            </div>
           ) : sourcePanel === "instagram" ? (
-            <div className="space-y-3">
-              <p className="text-sm text-zinc-600">Bu vakaya ait, tamamlanmış Instagram içe aktarımlarından gerçek konuşmayı seç. Joe katılımcıları çıkarır; analiz odağını sen belirlersin.</p>
-              <button className="buton-ikincil" type="button" onClick={() => void loadInstagramImports()} disabled={!caseId || instagramLoading}>{instagramLoading ? "Arşivler yükleniyor…" : "Bu vakanın arşivlerini yükle"}</button>
-              {!caseId ? <small>Önce aşağıdan vaka seç.</small> : null}
-              {instagramImports.length ? <label><span>İçe aktarma</span><select value={instagramBatchId} onChange={(event) => void selectInstagramImport(event.target.value)}><option value="">Arşiv seç</option>{instagramImports.map((item) => <option key={item.id} value={item.id}>{item.archive_owner_display_name || item.archive_owner_username || "Instagram arşivi"} — {item.total_conversations} konuşma</option>)}</select></label> : null}
-              {instagramConversations.length ? <label><span>Konuşma</span><select value={instagramConversationId} onChange={(event) => void selectInstagramConversation(event.target.value)}><option value="">Konuşma seç</option>{instagramConversations.map((item) => <option key={item.id} value={item.id}>{item.title || item.participant_names.join(", ") || "Adsız konuşma"} — {item.message_count} mesaj</option>)}</select></label> : null}
-              {instagramConversationId ? <label><span>Kim analiz edilecek?</span><select value={instagramTarget} onChange={(event) => setInstagramTarget(event.target.value)}><option value="">Katılımcı seç</option>{(instagramConversations.find((item) => item.id === instagramConversationId)?.participant_names ?? []).map((person) => <option key={person} value={person}>{person}</option>)}</select></label> : null}
-              {instagramMessages.length ? <small>{instagramMessages.length} gerçek mesaj analize hazırlandı; metin kanıt parçalarına dönüştürülecek.</small> : null}
+            <div className="source-workflow">
+              <div className="source-workflow-head"><span className="source-step">01</span><div><strong>Vakadaki Instagram arşivinden seç</strong><p>Tamamlanmış içe aktarmadaki gerçek konuşmayı seç; kişi ve bağlam ayrı ayrı görünür.</p></div></div>
+              {!caseId ? <div className="source-empty"><FolderSearch size={20} /><div><strong>Önce vaka seç</strong><small>Instagram arşivleri vaka dosyasına bağlıdır; seçtiğin vakaya ait içe aktarımlar aşağıda açılır.</small></div><label className="source-case-picker"><span>Vaka seç</span><select value={caseId} onChange={(event) => setCaseId(event.target.value)}><option value="">Vaka seç</option>{cases.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div> : <>
+                <div className="source-case-status"><span>VAKA BAĞLAMI</span><strong>{cases.find((item) => item.id === caseId)?.name || "Seçili vaka"}</strong><button className="buton-ikincil" type="button" onClick={() => void loadInstagramImports()} disabled={instagramLoading}>{instagramLoading ? "Arşivler yükleniyor…" : "Arşivleri getir"}</button></div>
+                {instagramImports.length ? <div className="source-select-grid"><label><span>İçe aktarma</span><select value={instagramBatchId} onChange={(event) => void selectInstagramImport(event.target.value)}><option value="">Arşiv seç</option>{instagramImports.map((item) => <option key={item.id} value={item.id}>{item.archive_owner_display_name || item.archive_owner_username || "Instagram arşivi"} — {item.total_conversations} konuşma</option>)}</select></label>{instagramConversations.length ? <label><span>Konuşma</span><select value={instagramConversationId} onChange={(event) => void selectInstagramConversation(event.target.value)}><option value="">Konuşma seç</option>{instagramConversations.map((item) => <option key={item.id} value={item.id}>{item.title || item.participant_names.join(", ") || "Adsız konuşma"} — {item.message_count} mesaj</option>)}</select></label> : null}{instagramConversationId ? <label><span>Analiz odağı</span><select value={instagramTarget} onChange={(event) => setInstagramTarget(event.target.value)}><option value="">Katılımcı seç</option>{(instagramConversations.find((item) => item.id === instagramConversationId)?.participant_names ?? []).map((person) => <option key={person} value={person}>{person}</option>)}</select></label> : null}</div> : <div className="source-hint">Bu vakada tamamlanmış bir Instagram içe aktarması görünmüyor. Vaka dosyasından arşiv ekleyebilirsin.</div>}
+                {instagramMessages.length ? <div className="source-ready"><CheckCircle2 size={17} /><div><strong>{instagramMessages.length.toLocaleString("tr-TR")} gerçek mesaj hazır</strong><small>Seçilen kişi için konuşma sırası ve bağlam korunarak kanıt parçaları oluşturulacak.</small></div></div> : null}
+              </>}
             </div>
           ) : (
             <>
@@ -398,11 +395,24 @@ export function AnalysisView({
               />
               <div className="kaynak-alt-bilgi">
                 <span><ShieldCheck size={15} /> Yüklenen ham dosya yerel artefakt deposunda tutulur.</span>
-                <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
+                <div className="kaynak-aksiyonlari">
+                  <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}>
                   {uploading ? <LoaderCircle size={15} className="donen" /> : <Upload size={15} />}
                   {uploading ? "Gerçek içerik çıkarılıyor…" : "Dosya seç"}
-                </button>
+                  </button>
+                  <button type="button" onClick={() => setDirectoryOpen((open) => !open)}><FolderSearch size={15} /> {directoryOpen ? "Dizin alanını kapat" : "Dizini indeksle"}</button>
+                </div>
               </div>
+              {directoryOpen ? <DirectorySource
+                caseId={caseId}
+                onPrepared={(text, nextTitle) => {
+                  setSourceText(text);
+                  setSourceType("local_corpus");
+                  setUploadedName("Dizin indeksinden seçilen içerik");
+                  setTitle((current) => current || nextTitle);
+                  setDirectoryOpen(false);
+                }}
+              /> : null}
             </>
           )}
         </section>
