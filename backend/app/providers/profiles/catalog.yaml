@@ -180,6 +180,16 @@
   docs_url: https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html
   capabilities: {structured_output: true, tools: true, vision: true, model_listing: true, local: true}
 
+- id: opencode
+  name: OpenCode
+  protocol: openai-chat
+  default_base_url: null
+  requires_api_key: true
+  api_key_label: API anahtarı
+  model_hint: OpenCode API model kimliği
+  docs_url: https://opencode.ai/docs
+  capabilities: {structured_output: true, tools: true, vision: false, model_listing: false}
+
 - id: custom-openai
   name: Özel OpenAI Uyumlu Sağlayıcı
   protocol: openai-chat

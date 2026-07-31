@@ -37,6 +37,15 @@ from .prompts import (
     revision_prompt,
     synthesis_prompt,
 )
+
+# Konsey fazları için çıktı token sınırları. Bu sınırlar maliyeti kontrol altında
+# tutar ve aşırı uzun, gereksiz yere ayrıntılı çıktıları önler.
+PHASE_MAX_TOKENS = {
+    "bağımsız_görüşler": 1200,
+    "çapraz_sorgu": 1000,
+    "görüş_revizyonu": 1200,
+    "ortak_sentez": 1500,
+}
 from .validation import audit_payload
 
 
@@ -252,6 +261,7 @@ class CouncilEngine:
                         analysis_prompt(persona, evidence_text),
                         temperature=0.25,
                         attachments=attachments,
+                        max_tokens=PHASE_MAX_TOKENS["bağımsız_görüşler"],
                     )
                 parsed = parse_structured(response.text, PersonaAnalysis).model_dump()
                 meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}
@@ -287,9 +297,10 @@ class CouncilEngine:
                     self._record_event(session.id, "persona_started", {"phase": "çapraz_sorgu", "persona_id": persona_id})
                     response = await client.chat(
                         persona.system_prompt,
-                        challenge_prompt(persona, evidence_text, peer_payloads),
+                        challenge_prompt(persona, peer_payloads),
                         temperature=0.15,
                         attachments=attachments,
+                        max_tokens=PHASE_MAX_TOKENS["çapraz_sorgu"],
                     )
                 parsed = parse_structured(response.text, PersonaChallenge).model_dump()
                 meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}
@@ -332,12 +343,12 @@ class CouncilEngine:
                         persona.system_prompt,
                         revision_prompt(
                             persona,
-                            evidence_text,
                             analyses[persona_id]["payload"],
                             incoming,
                         ),
                         temperature=0.2,
                         attachments=attachments,
+                        max_tokens=PHASE_MAX_TOKENS["görüş_revizyonu"],
                     )
                 parsed = parse_structured(response.text, PersonaRevision).model_dump()
                 meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}
@@ -375,6 +386,7 @@ class CouncilEngine:
                 synthesis_prompt(evidence_text, outputs),
                 temperature=0.1,
                 attachments=attachments,
+                max_tokens=PHASE_MAX_TOKENS["ortak_sentez"],
             )
             parsed = parse_structured(response.text, CouncilSynthesis).model_dump()
             meta = {"model": response.model, "usage": response.usage, "connection_id": connection_id}

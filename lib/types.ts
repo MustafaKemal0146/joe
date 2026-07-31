@@ -94,6 +94,18 @@ export interface CouncilTurn {
   created_at: string;
 }
 
+export interface AnalysisEstimate {
+  total_chars: number;
+  persona_count: number;
+  estimated_prompts: number;
+  estimated_input_tokens: number;
+  estimated_output_tokens: number;
+  estimated_total_tokens: number;
+  estimated_cost_usd: number | null;
+  cost_note: string | null;
+  max_evidence_chars: number;
+}
+
 export interface AnalysisSession {
   id: string;
   case_id: string | null;
