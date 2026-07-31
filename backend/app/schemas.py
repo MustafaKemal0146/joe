@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-MAX_ANALYSIS_SOURCE_CHARS = 1_000_000
+MAX_ANALYSIS_SOURCE_CHARS = 100_000
 
 
 class ORMModel(BaseModel):
@@ -108,6 +108,20 @@ class AnalysisRead(ORMModel):
     created_at: datetime
     updated_at: datetime
     turns: list[CouncilTurnRead] = Field(default_factory=list)
+
+
+class AnalysisEstimate(BaseModel):
+    """Analiz başlatılmadan önceki token ve maliyet tahmini."""
+
+    total_chars: int
+    persona_count: int
+    estimated_prompts: int
+    estimated_input_tokens: int
+    estimated_output_tokens: int
+    estimated_total_tokens: int
+    estimated_cost_usd: float | None
+    cost_note: str | None
+    max_evidence_chars: int
 
 
 class OsintPlanRequest(BaseModel):

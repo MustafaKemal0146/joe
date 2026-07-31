@@ -1,4 +1,5 @@
 import type {
+  AnalysisEstimate,
   AnalysisSession,
   AnalysisStage,
   ArtifactRecord,
@@ -80,6 +81,8 @@ export const joeApi = {
   analyses: () => request<AnalysisSession[]>("/analyses"),
   analysis: (id: string) => request<AnalysisSession>(`/analyses/${id}`),
   analysisStages: (id: string) => request<AnalysisStage[]>(`/analyses/${id}/stages`),
+  estimateAnalysis: (body: Record<string, unknown>) =>
+    request<AnalysisEstimate>("/analyses/estimate", { method: "POST", body: JSON.stringify(body) }),
   createAnalysis: (body: Record<string, unknown>) =>
     request<AnalysisSession>("/analyses", { method: "POST", body: JSON.stringify(body) }),
   cancelAnalysis: (id: string) =>

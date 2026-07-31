@@ -82,21 +82,22 @@ class ProviderClient:
         temperature: float = 0.2,
         structured: bool = True,
         attachments: list[dict[str, str]] | None = None,
+        max_tokens: int | None = None,
     ) -> ProviderResponse:
         attachments = attachments or []
         if attachments and not self.profile.capabilities.vision:
             raise ProviderError("vision_unsupported", "Seçili sağlayıcı görsel analizi desteklemiyor.")
         protocol = self.profile.protocol
         if protocol == "openai-chat":
-            return await self._openai_chat(system, user, temperature, structured, attachments)
+            return await self._openai_chat(system, user, temperature, structured, attachments, max_tokens)
         if protocol == "anthropic":
-            return await self._anthropic(system, user, temperature, attachments)
+            return await self._anthropic(system, user, temperature, attachments, max_tokens)
         if protocol == "gemini":
-            return await self._gemini(system, user, temperature, attachments)
+            return await self._gemini(system, user, temperature, attachments, max_tokens)
         if protocol == "ollama":
-            return await self._ollama(system, user, temperature, structured, attachments)
+            return await self._ollama(system, user, temperature, structured, attachments, max_tokens)
         if protocol == "azure-openai":
-            return await self._azure_openai(system, user, temperature, structured, attachments)
+            return await self._azure_openai(system, user, temperature, structured, attachments, max_tokens)
         raise ProviderError("unsupported_protocol", f"Desteklenmeyen protokol: {protocol}")
 
     async def list_models(self) -> list[str]:
@@ -139,6 +140,7 @@ class ProviderClient:
         temperature: float,
         structured: bool,
         attachments: list[dict[str, str]],
+        max_tokens: int | None,
     ) -> ProviderResponse:
         payload: dict[str, Any] = {
             "model": self.model,
@@ -148,6 +150,8 @@ class ProviderClient:
             ],
             "temperature": temperature,
         }
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
         if structured and self.profile.capabilities.structured_output:
             payload["response_format"] = {"type": "json_object"}
         data = await self._post_json(
@@ -174,6 +178,7 @@ class ProviderClient:
         user: str,
         temperature: float,
         attachments: list[dict[str, str]],
+        max_tokens: int | None,
     ) -> ProviderResponse:
         data = await self._post_json(
             f"{self.base_url}/messages",
@@ -181,7 +186,7 @@ class ProviderClient:
                 "model": self.model,
                 "system": system,
                 "messages": [{"role": "user", "content": self._anthropic_content(user, attachments)}],
-                "max_tokens": int(self.extra_config.get("max_tokens", 4096)),
+                "max_tokens": max_tokens or int(self.extra_config.get("max_tokens", 4096)),
                 "temperature": temperature,
             },
             {
@@ -207,17 +212,21 @@ class ProviderClient:
         user: str,
         temperature: float,
         attachments: list[dict[str, str]],
+        max_tokens: int | None,
     ) -> ProviderResponse:
         url = f"{self.base_url}/models/{quote(self.model, safe='-_.')}:generateContent"
+        generation_config: dict[str, Any] = {
+            "temperature": temperature,
+            "responseMimeType": "application/json",
+        }
+        if max_tokens:
+            generation_config["maxOutputTokens"] = max_tokens
         data = await self._post_json(
             url,
             {
                 "systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": self._gemini_parts(user, attachments)}],
-                "generationConfig": {
-                    "temperature": temperature,
-                    "responseMimeType": "application/json",
-                },
+                "generationConfig": generation_config,
             },
             {"content-type": "application/json", "x-goog-api-key": self.api_key or ""},
         )
@@ -239,7 +248,11 @@ class ProviderClient:
         temperature: float,
         structured: bool,
         attachments: list[dict[str, str]],
+        max_tokens: int | None,
     ) -> ProviderResponse:
+        options: dict[str, Any] = {"temperature": temperature}
+        if max_tokens:
+            options["num_predict"] = max_tokens
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -251,7 +264,7 @@ class ProviderClient:
                 },
             ],
             "stream": False,
-            "options": {"temperature": temperature},
+            "options": options,
         }
         if structured:
             payload["format"] = "json"
@@ -274,6 +287,7 @@ class ProviderClient:
         temperature: float,
         structured: bool,
         attachments: list[dict[str, str]],
+        max_tokens: int | None,
     ) -> ProviderResponse:
         deployment = str(self.extra_config.get("deployment") or self.model)
         api_version = str(self.extra_config.get("api_version") or "2024-10-21")
@@ -288,6 +302,8 @@ class ProviderClient:
             ],
             "temperature": temperature,
         }
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
         if structured:
             payload["response_format"] = {"type": "json_object"}
         data = await self._post_json(

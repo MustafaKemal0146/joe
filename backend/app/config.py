@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     # Bu sınır yükleme/ZIP sınırından ayrıdır: metin tabanlı analiz kaynakları
     # için açık bir bellek ve sağlayıcı bağlamı korumasıdır. İçerik hiçbir zaman
     # sessizce kesilmez; toplam bu sınırı aşarsa API anlaşılır biçimde reddeder.
-    max_evidence_chars: int = 1_000_000
+    # Büyük Instagram/WhatsApp arşivleri için token maliyetini kontrol altında
+    # tutmak amacıyla varsayılan 100.000 karakterdedir; .env'den artırılabilir.
+    max_evidence_chars: int = 100_000
     max_index_file_bytes: int = 128 * 1024 * 1024
     max_index_document_chars: int = 500_000
 

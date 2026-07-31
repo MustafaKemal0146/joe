@@ -7,37 +7,25 @@ from ..personas.catalog import PersonaDefinition
 
 
 ANALYSIS_SCHEMA = {
-    "thesis": "Bu merceğin temel, ihtiyatlı tezi",
+    "thesis": "ihtiyatlı tez",
     "observations": [
-        {
-            "claim": "Metinde doğrudan gözlenen örüntü",
-            "evidence_ids": ["K1"],
-            "interpretation": "Kuramsal yorum",
-            "alternatives": ["Daha sıradan bir karşı açıklama"],
-            "confidence": "düşük | orta | yüksek",
-        }
+        {"claim": "gözlem", "evidence_ids": ["K1"], "interpretation": "kuramsal yorum", "alternatives": ["karşı açıklama"], "confidence": "düşük|orta|yüksek"}
     ],
-    "tensions": ["Metin içi çatışma veya gerilim"],
-    "unknowns": ["Eksik bağlam"],
-    "abstentions": ["Veri yetmediği için yapılmayan çıkarım"],
+    "tensions": ["metin içi çatışma"],
+    "unknowns": ["eksik bağlam"],
+    "abstentions": ["yapılmayan çıkarım"],
 }
 
 CHALLENGE_SCHEMA = {
     "challenges": [
-        {
-            "target_persona_id": "hedef kimliği",
-            "target_claim": "itiraz edilen iddia",
-            "issue": "kanıt, mantık veya kuram sorunu",
-            "evidence_ids": ["K2"],
-            "requested_revision": "nasıl sınırlandırılmalı",
-        }
+        {"target_persona_id": "hedef", "target_claim": "itiraz edilen iddia", "issue": "sorun", "evidence_ids": ["K2"], "requested_revision": "nasıl sınırlandırılmalı"}
     ],
     "agreements": ["kanıtla desteklenen uzlaşma"],
-    "blind_spots": ["konseyin gözden kaçırdığı bağlam"],
+    "blind_spots": ["gözden kaçan bağlam"],
 }
 
 REVISION_SCHEMA = {
-    "revised_thesis": "Eleştirilerden sonra güncellenmiş tez",
+    "revised_thesis": "güncel tez",
     "observations": ANALYSIS_SCHEMA["observations"],
     "changed_positions": ["değişen görüş ve nedeni"],
     "retained_positions": ["korunan görüş ve kanıtı"],
@@ -46,22 +34,37 @@ REVISION_SCHEMA = {
 }
 
 SYNTHESIS_SCHEMA = {
-    "executive_summary": "Kurullar arası dengeli ve ihtiyatlı sonuç",
+    "executive_summary": "dengeli ve ihtiyatlı sonuç",
     "claims": [
-        {
-            "statement": "sonuç cümlesi",
-            "kind": "gözlem | kuramsal yorum | karşı hipotez | belirsizlik",
-            "evidence_ids": ["K1"],
-            "supporting_personas": ["freud"],
-            "dissenting_personas": ["foucault"],
-            "confidence": "düşük | orta | yüksek",
-        }
+        {"statement": "sonuç cümlesi", "kind": "gözlem|kuramsal yorum|karşı hipotez|belirsizlik", "evidence_ids": ["K1"], "supporting_personas": ["freud"], "dissenting_personas": ["foucault"], "confidence": "düşük|orta|yüksek"}
     ],
     "convergences": ["uzlaşı"],
     "disagreements": ["giderilmemiş ayrılık"],
     "missing_context": ["eksik veri"],
     "scope_note": "Bu çıktı klinik tanı değildir; sunulan içerik üzerinde kuramsal yorumdur.",
 }
+
+
+def _compact_analysis(analysis: dict[str, Any], max_observations: int = 4) -> dict[str, Any]:
+    """Fazlar arası gönderim için persona çıktısını kısalt.
+
+    Kanıt kimlikleri ve iddialar korunur; ayrıntılı yorumlar azaltılır.
+    """
+    observations = analysis.get("observations", []) or []
+    compact: list[dict[str, Any]] = []
+    for obs in observations[:max_observations]:
+        compact.append({
+            "claim": obs.get("claim", ""),
+            "evidence_ids": obs.get("evidence_ids", []),
+            "confidence": obs.get("confidence", "orta"),
+        })
+    return {
+        "thesis": analysis.get("thesis", ""),
+        "observations": compact,
+        "tensions": (analysis.get("tensions", []) or [])[:4],
+        "unknowns": (analysis.get("unknowns", []) or [])[:4],
+        "abstentions": (analysis.get("abstentions", []) or [])[:4],
+    }
 
 
 def analysis_prompt(persona: PersonaDefinition, evidence: str) -> str:
@@ -74,88 +77,85 @@ YÖNLENDİRİCİ SORULAR
 KANIT PAKETİ
 {evidence}
 
-Bu merceğin kendine özgü kavramlarını açıkça kullan: genel-geçer bir yorum yazma.
-Kanıt yeterliyse üç ila altı somut gözlem üret; her gözlemde doğrudan alıntılanan
-K* kanıtını, kuramsal bağını ve makul alternatif açıklamayı ayrı ver. Veri kısa
-veya bağlamsızsa sayıyı zorlamadan neden çekimser kaldığını belirt.
+Bu merceğin kendine özgü kavramlarını kullan; genel-geçer yorum yazma. Kanıt yeterliyse
+üç ila altı somut gözlem üret. Her gözlemde K* kanıtını, kuramsal bağını ve alternatif
+açıklamayı ayrı ver. Veri kısaysa çekimser kal.
 
-Yalnızca geçerli JSON döndür. Markdown kullanma. Tam şema:
+Yalnızca geçerli JSON döndür. Şema:
 {json.dumps(ANALYSIS_SCHEMA, ensure_ascii=False, indent=2)}
 """
 
 
 def challenge_prompt(
     persona: PersonaDefinition,
-    evidence: str,
     peer_analyses: dict[str, dict[str, Any]],
 ) -> str:
+    compact_peers = {
+        key: _compact_analysis(value)
+        for key, value in peer_analyses.items()
+    }
     return f"""Kendi kuramsal sınırlarını koruyarak diğer konsey üyelerinin iddialarını çapraz sorgula.
-En fazla dört güçlü ve somut itiraz üret. İtiraz sırf kuramsal farklılık değil; kanıt yetersizliği,
-alternatif açıklama, bağlam atlama veya aşırı kesinlik göstermelidir.
+En fazla dört somut itiraz üret. İtiraz kanıt yetersizliği, alternatif açıklama, bağlam atlama
+veya aşırı kesinlik göstermelidir.
 
 SANA ÖZEL ELEŞTİRİ GÖREVİ
 {persona.challenge_focus}
 
-KANIT PAKETİ
-{evidence}
+DİĞER BAĞIMSIZ GÖRÜŞLER (özet)
+{json.dumps(compact_peers, ensure_ascii=False, indent=2)}
 
-DİĞER BAĞIMSIZ GÖRÜŞLER
-{json.dumps(peer_analyses, ensure_ascii=False, indent=2)}
-
-Yalnızca geçerli JSON döndür. Markdown kullanma. Tam şema:
+Yalnızca geçerli JSON döndür. Şema:
 {json.dumps(CHALLENGE_SCHEMA, ensure_ascii=False, indent=2)}
 """
 
 
 def revision_prompt(
     persona: PersonaDefinition,
-    evidence: str,
     own_analysis: dict[str, Any],
     incoming_challenges: list[dict[str, Any]],
 ) -> str:
     return f"""İlk görüşünü sana yöneltilen eleştiriler ışığında yeniden değerlendir.
-Eleştiriyi otomatik kabul etme; kanıt güçlü ise değiştir, değilse kanıtla koru.
-Yeni kanıt kimliği üretme ve ilk analizde bulunmayan kesinlik ekleme.
+Eleştiriyi otomatik kabul etme; kanıt güçlü ise değiştir, değilse koru. Yeni kanıt kimliği
+üretme ve ilk analizde bulunmayan kesinlik ekleme.
 
-KANIT PAKETİ
-{evidence}
-
-İLK GÖRÜŞÜN
-{json.dumps(own_analysis, ensure_ascii=False, indent=2)}
+İLK GÖRÜŞÜN (özet)
+{json.dumps(_compact_analysis(own_analysis), ensure_ascii=False, indent=2)}
 
 SANA YÖNELTİLEN ELEŞTİRİLER
-{json.dumps(incoming_challenges, ensure_ascii=False, indent=2)}
+{json.dumps(incoming_challenges[:6], ensure_ascii=False, indent=2)}
 
-Yalnızca geçerli JSON döndür. Markdown kullanma. Tam şema:
+Yalnızca geçerli JSON döndür. Şema:
 {json.dumps(REVISION_SCHEMA, ensure_ascii=False, indent=2)}
 """
 
 
 MODERATOR_SYSTEM = """Sen Joe Kuramsal Konseyinin nötr sentez moderatörüsün.
-Tarihsel bir kişiyi taklit etmezsin. Klinik tanı, tedavi önerisi, tehlikelilik,
-suçluluk veya değişmez kişilik etiketi üretmezsin. Çoğunluk görüşünü otomatik
-doğru saymazsın. Doğrudan gözlem, kuramsal yorum, karşı hipotez ve belirsizliği
-ayrı tutarsın. Her iddiayı var olan kanıt kimliklerine bağlar; uydurma kanıt
-üretmezsin. Türkçe, nötr ve açık yazarsın."""
+Tarihsel kişiyi taklit etmezsin. Klinik tanı, tedavi önerisi, tehlikelilik, suçluluk veya
+değişmez kişilik etiketi üretmezsin. Çoğunluk görüşünü otomatik doğru saymazsın.
+Doğrudan gözlem, kuramsal yorum, karşı hipotez ve belirsizliği ayrı tutarsın.
+Her iddiayı var olan kanıt kimliklerine bağlar; uydurma kanıt üretmezsin.
+Türkçe, nötr ve açık yazarsın."""
 
 
 def synthesis_prompt(
     evidence: str,
     persona_outputs: dict[str, dict[str, Any]],
 ) -> str:
+    compact_outputs = {
+        key: _compact_analysis(value)
+        for key, value in persona_outputs.items()
+    }
     return f"""Aşağıdaki gözden geçirilmiş konsey görüşlerinden kanıta dayalı ortak sonuç üret.
 Farklılıkları silme; önemli muhalefeti görünür tut. Kuramsal yorumları olgu gibi yazma.
-`executive_summary` en az üç anlaşılır paragraftan oluşsun: önce kanıtta görülen
-temalar, sonra hangi merceklerin nerede birleşip ayrıldığı, son olarak verinin
-sınırları ve yapılmayan çıkarımlar. Bu açıklama, bütün persona görüşlerini,
-itirazları ve revizyonları okuyarak yazılan üst düzey genel yorumdur.
+`executive_summary` en fazla üç anlaşılır paragraftan oluşsun: temalar, merceklerin
+birleştiği/ayrıldığı noktalar, verinin sınırları.
 
 KANIT PAKETİ
 {evidence}
 
-GÖZDEN GEÇİRİLMİŞ GÖRÜŞLER
-{json.dumps(persona_outputs, ensure_ascii=False, indent=2)}
+GÖZDEN GEÇİRİLMİŞ GÖRÜŞLER (özet)
+{json.dumps(compact_outputs, ensure_ascii=False, indent=2)}
 
-Yalnızca geçerli JSON döndür. Markdown kullanma. Tam şema:
+Yalnızca geçerli JSON döndür. Şema:
 {json.dumps(SYNTHESIS_SCHEMA, ensure_ascii=False, indent=2)}
 """

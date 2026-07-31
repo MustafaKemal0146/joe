@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 from .artifacts import ArtifactError, ArtifactService
 from .config import get_settings
 from .corpus import CorpusError, CorpusService
+from .council.pricing import estimate_cost_usd
 from .db import SessionLocal, get_db
 from .models import (
     AnalysisEvent,
@@ -45,6 +46,7 @@ from .providers import get_provider_registry
 from .providers.client import ProviderClient, ProviderError
 from .schemas import (
     AnalysisCreate,
+    AnalysisEstimate,
     AnalysisRead,
     AnalysisSourceInput,
     ArtifactRead,
@@ -332,28 +334,8 @@ def list_analyses(db: Session = Depends(get_db)) -> list[AnalysisSession]:
     )
 
 
-@router.post("/analyses", response_model=AnalysisRead, status_code=status.HTTP_202_ACCEPTED)
-def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> AnalysisSession:
-    for persona_id in body.selected_personas:
-        try:
-            get_persona(persona_id)
-        except KeyError as exc:
-            raise HTTPException(status_code=422, detail=f"Bilinmeyen persona: {persona_id}") from exc
-    if body.default_provider_connection_id:
-        _get_connection(db, body.default_provider_connection_id)
-    if body.synthesis_provider_connection_id:
-        _get_connection(db, body.synthesis_provider_connection_id)
-    for persona_id, connection_id in body.provider_routes.items():
-        if persona_id not in body.selected_personas:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Sağlayıcı rotası seçilmemiş personaya ait: {persona_id}",
-            )
-        _get_connection(db, connection_id)
-    if not body.default_provider_connection_id and not body.provider_routes:
-        raise HTTPException(status_code=422, detail="En az bir AI sağlayıcı bağlantısı seçilmeli.")
-    if body.case_id:
-        _get_case(db, body.case_id)
+def _collect_analysis_sources(body: AnalysisCreate, db: Session) -> list[AnalysisSourceInput]:
+    """Analiz için seçilen kaynakları (metin, dosya, görsel) topla; doğrula ama DB'ye kaydetme."""
     source_items = list(body.source_items)
     if body.artifact_ids:
         artifacts = list(
@@ -392,8 +374,14 @@ def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> Anal
             status_code=422,
             detail="Analiz için metin, dosya, görsel, arşiv veya indekslenmiş kaynak seçilmeli.",
         )
+    return source_items
 
-    rendered_sources = []
+
+def _validate_and_measure_sources(
+    source_items: list[AnalysisSourceInput],
+) -> tuple[list[tuple[AnalysisSourceInput, str]], list[str], int]:
+    """Kaynakları ölç, karakter sınırını kontrol et, render'lanmış hallerini döndür."""
+    rendered_sources: list[str] = []
     prepared_items: list[tuple[AnalysisSourceInput, str]] = []
     total_chars = 0
     for item in source_items:
@@ -405,7 +393,8 @@ def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> Anal
                 status_code=422,
                 detail=(
                     f"Seçilen kaynaklar toplam {settings.max_evidence_chars:,} karakter sınırını aşıyor. "
-                    "Joe içeriği sessizce kesmez; konuşmayı ayrı analiz oturumlarına böl veya daha dar bir kaynak seç."
+                    "Joe içeriği sessizce kesmez; konuşmayı ayrı analiz oturumlarına böl, "
+                    "daha dar bir tarih/katılımcı aralığı seç veya JOE_MAX_EVIDENCE_CHARS ile sınırı artır."
                 ).replace(",", "."),
             )
         rendered_sources.append(f"### {item.source_label}\n{content}")
@@ -413,6 +402,105 @@ def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> Anal
         total_chars += len(content)
     if not rendered_sources:
         raise HTTPException(status_code=422, detail="Seçilen kaynaklardan analiz içeriği çıkarılamadı.")
+    return prepared_items, rendered_sources, total_chars
+
+
+def _estimate_analysis_tokens(total_chars: int, persona_count: int) -> dict[str, int]:
+    """Konsey protokolü için kaba token tahmini üret.
+
+    Hesaplamalar:
+    - Giriş tokenleri: her prompt için ~1000 token ek yük + bağımsız görüş ve
+      sentez fazlarında kanıt metni (3-4 karakter/token varsayımı).
+    - Çıkış tokenleri: faz başına sabit sınırlar toplamı.
+    """
+    prompts = 3 * persona_count + 1
+    evidence_tokens = total_chars // 4
+    # Kanıt metni bağımsız görüş (N) ve sentez (1) fazlarında gönderilir.
+    evidence_bearing_prompts = persona_count + 1
+    input_tokens = (prompts * 1000) + (evidence_bearing_prompts * evidence_tokens)
+    output_tokens = (
+        persona_count * 1200  # bağımsız görüş
+        + persona_count * 1000  # çapraz sorgu
+        + persona_count * 1200  # görüş revizyonu
+        + 1500  # sentez
+    )
+    return {
+        "estimated_prompts": prompts,
+        "estimated_input_tokens": input_tokens,
+        "estimated_output_tokens": output_tokens,
+        "estimated_total_tokens": input_tokens + output_tokens,
+    }
+
+
+@router.post("/analyses/estimate", response_model=AnalysisEstimate)
+def estimate_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> AnalysisEstimate:
+    """Analiz başlatılmadan önce token ve yaklaşık maliyet tahmini ver."""
+    for persona_id in body.selected_personas:
+        try:
+            get_persona(persona_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=422, detail=f"Bilinmeyen persona: {persona_id}") from exc
+    if body.case_id:
+        _get_case(db, body.case_id)
+    source_items = _collect_analysis_sources(body, db)
+    _, _, total_chars = _validate_and_measure_sources(source_items)
+    persona_count = len(body.selected_personas)
+    estimates = _estimate_analysis_tokens(total_chars, persona_count)
+
+    # Maliyet tahmini için varsayılan sağlayıcı bağlantısını veya ilk rotayı kullan.
+    cost_provider_id: str | None = None
+    if body.default_provider_connection_id:
+        connection = _get_connection(db, body.default_provider_connection_id)
+        cost_provider_id = connection.provider_id
+    elif body.provider_routes:
+        first_connection_id = next(iter(body.provider_routes.values()))
+        connection = _get_connection(db, first_connection_id)
+        cost_provider_id = connection.provider_id
+
+    estimated_cost_usd: float | None = None
+    cost_note: str | None = None
+    if cost_provider_id:
+        estimated_cost_usd, cost_note = estimate_cost_usd(
+            cost_provider_id,
+            estimates["estimated_input_tokens"],
+            estimates["estimated_output_tokens"],
+        )
+
+    return AnalysisEstimate(
+        total_chars=total_chars,
+        persona_count=persona_count,
+        max_evidence_chars=settings.max_evidence_chars,
+        **estimates,
+        estimated_cost_usd=estimated_cost_usd,
+        cost_note=cost_note,
+    )
+
+
+@router.post("/analyses", response_model=AnalysisRead, status_code=status.HTTP_202_ACCEPTED)
+def create_analysis(body: AnalysisCreate, db: Session = Depends(get_db)) -> AnalysisSession:
+    for persona_id in body.selected_personas:
+        try:
+            get_persona(persona_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=422, detail=f"Bilinmeyen persona: {persona_id}") from exc
+    if body.default_provider_connection_id:
+        _get_connection(db, body.default_provider_connection_id)
+    if body.synthesis_provider_connection_id:
+        _get_connection(db, body.synthesis_provider_connection_id)
+    for persona_id, connection_id in body.provider_routes.items():
+        if persona_id not in body.selected_personas:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Sağlayıcı rotası seçilmemiş personaya ait: {persona_id}",
+            )
+        _get_connection(db, connection_id)
+    if not body.default_provider_connection_id and not body.provider_routes:
+        raise HTTPException(status_code=422, detail="En az bir AI sağlayıcı bağlantısı seçilmeli.")
+    if body.case_id:
+        _get_case(db, body.case_id)
+
+    source_items = _collect_analysis_sources(body, db)
+    prepared_items, rendered_sources, _total_chars = _validate_and_measure_sources(source_items)
 
     payload = body.model_dump(exclude={"source_items", "artifact_ids"})
     payload["source_text"] = "\n\n".join(rendered_sources)

@@ -28,6 +28,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { joeApi, readableError } from "../../lib/api";
 import { analysisSessionPath } from "../../lib/analysis-path";
 import type {
+  AnalysisEstimate,
   AnalysisSession,
   CaseRecord,
   ImportBatch,
@@ -44,7 +45,7 @@ import { DirectorySource } from "./directory-source";
 
 
 const CORE_COUNCIL = ["freud", "jung", "klein", "reich", "fromm", "kristeva", "zizek"];
-const MAX_ANALYSIS_SOURCE_CHARS = 1_000_000;
+const MAX_ANALYSIS_SOURCE_CHARS = 100_000;
 const PHASES = [
   ["hazırlanıyor", "Hazırlık"],
   ["bağımsız_görüşler", "Bağımsız görüş"],
@@ -96,6 +97,8 @@ export function AnalysisView({
   const [session, setSession] = useState<AnalysisSession | null>(null);
   const [resultTab, setResultTab] = useState<"sonuc" | "konsey" | "kanit">("sonuc");
   const [followup, setFollowup] = useState("");
+  const [estimate, setEstimate] = useState<AnalysisEstimate | null>(null);
+  const [estimating, setEstimating] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const whatsappFileRef = useRef<HTMLInputElement>(null);
 
@@ -229,6 +232,45 @@ export function AnalysisView({
       setError(readableError(caught));
     } finally {
       setInstagramLoading(false);
+    }
+  }
+
+  async function calculateEstimate() {
+    if (selectedPersonas.length < 2) {
+      setError("Tahmin için en az iki persona seçmelisin.");
+      return;
+    }
+    if (!analysisText.trim() && !artifactId) {
+      setError("Tahmin için analiz edilecek bir içerik seçmelisin.");
+      return;
+    }
+    setEstimating(true);
+    setError(null);
+    try {
+      const selectedRoutes = advancedRoutes
+        ? Object.fromEntries(
+            Object.entries(routes).filter(([personaId, connectionId]) =>
+              selectedPersonas.includes(personaId) && Boolean(connectionId),
+            ),
+          )
+        : {};
+      const result = await joeApi.estimateAnalysis({
+        title: title || "Kuramsal konsey analizi",
+        case_id: caseId,
+        source_text: analysisText,
+        source_type: sourceType,
+        artifact_ids: artifactId ? [artifactId] : [],
+        selected_personas: selectedPersonas,
+        default_provider_connection_id: effectiveDefaultConnection || null,
+        synthesis_provider_connection_id: synthesisConnection || effectiveDefaultConnection || null,
+        provider_routes: selectedRoutes,
+      });
+      setEstimate(result);
+    } catch (caught) {
+      setError(readableError(caught));
+      setEstimate(null);
+    } finally {
+      setEstimating(false);
     }
   }
 
@@ -505,11 +547,41 @@ export function AnalysisView({
 
         <div className="analiz-baslat-cubugu">
           <div><span><UsersRound size={17} /> {selectedPersonas.length} persona</span><span><Quote size={17} /> {analysisText.length.toLocaleString("tr-TR")} karakter</span><span><Scale size={17} /> 4 aşama</span></div>
-          <button className="birincil-buton buyuk" disabled={submitting || uploading || (!analysisText.trim() && !artifactId) || !caseId || selectedPersonas.length < 2 || connections.length === 0 || (sourceType === "whatsapp" && !whatsappTarget)}>
-            {submitting ? <LoaderCircle size={18} className="donen" /> : <BrainCircuit size={18} />}
-            {submitting ? "Konsey sıraya alınıyor…" : "Konseyi çalıştır"}
-          </button>
+          <div className="analiz-baslat-aksiyon">
+            <button
+              type="button"
+              className="buton-ikincil"
+              onClick={() => void calculateEstimate()}
+              disabled={estimating || selectedPersonas.length < 2 || (!analysisText.trim() && !artifactId)}
+            >
+              {estimating ? <LoaderCircle size={16} className="donen" /> : <Scale size={16} />}
+              {estimating ? "Hesaplanıyor…" : "Tahmini gör"}
+            </button>
+            <button className="birincil-buton buyuk" disabled={submitting || uploading || (!analysisText.trim() && !artifactId) || !caseId || selectedPersonas.length < 2 || connections.length === 0 || (sourceType === "whatsapp" && !whatsappTarget)}>
+              {submitting ? <LoaderCircle size={18} className="donen" /> : <BrainCircuit size={18} />}
+              {submitting ? "Konsey sıraya alınıyor…" : "Konseyi çalıştır"}
+            </button>
+          </div>
         </div>
+
+        {estimate ? (
+          <div className="tahmin-karti">
+            <div><strong>Tahmini token kullanımı</strong><span>{estimate.estimated_total_tokens.toLocaleString("tr-TR")} token</span></div>
+            <div><strong>Giriş</strong><span>{estimate.estimated_input_tokens.toLocaleString("tr-TR")}</span></div>
+            <div><strong>Çıkış</strong><span>{estimate.estimated_output_tokens.toLocaleString("tr-TR")}</span></div>
+            <div><strong>Yaklaşık maliyet</strong>
+              {estimate.estimated_cost_usd !== null ? (
+                <span className="tahmin-maliyet">~${estimate.estimated_cost_usd.toFixed(4)} USD</span>
+              ) : (
+                <span className="tahmin-bilinmiyor">Bilinmiyor</span>
+              )}
+            </div>
+            {estimate.cost_note ? <p className="tahmin-notu">{estimate.cost_note}</p> : null}
+            {estimate.total_chars >= estimate.max_evidence_chars * 0.9 ? (
+              <p className="tahmin-uyari">Kaynak boyutu sınır yakınında; maliyet yüksek olabilir.</p>
+            ) : null}
+          </div>
+        ) : null}
       </form>
     </div>
   );

@@ -13,4 +13,4 @@ def test_cors_origins_accept_compose_comma_list(monkeypatch):
         "http://localhost:4177",
         "http://127.0.0.1:4177",
     ]
-    assert settings.max_evidence_chars == 1_000_000
+    assert settings.max_evidence_chars == 100_000
