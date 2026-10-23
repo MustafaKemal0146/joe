@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Arayüz bağımlılıkları
+        run: pnpm install --frozen-lockfile
+        working-directory: web
+      - name: Arayüz testleri
+        run: pnpm test
+        working-directory: web
+      - name: Arayüz derleme (gömülecek paket)
+        run: pnpm build
+        working-directory: web
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Biçim denetimi
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -race ./...
+      - name: İkili derleme
+        run: go build -o /tmp/joe ./cmd/joe
+      - name: Sürüm komutu çalışıyor
+        run: /tmp/joe version

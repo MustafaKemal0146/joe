@@ -1,0 +1,27 @@
+# Go
+/bin/
+/joe
+*.test
+*.out
+
+# Web
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+*.tsbuildinfo
+
+# Yerel veri: kişisel yazışmalar ve anahtarlar depoya asla girmez
+*.db
+*.db-wal
+*.db-shm
+*.enc
+*.enc.key
+*.zip
+/imports/
+/data/
+.env*
+!.env.example
+.DS_Store
+
+# Kişisel test verisi: asla depoya girmez
+/test-kaynak/

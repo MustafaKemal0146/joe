@@ -1,0 +1,99 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-sunken: var(--sunken);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-ig: var(--ig);
+  --color-wa: var(--wa);
+  --radius-card: 18px;
+}
+
+/*
+ * Joe tasarım değişkenleri. Yapı fetih-2'den: derin zemin üstünde çerçeveli içerik kartı ve
+ * gruplu kenar çubuğu. Dil Apple'dan: bol boşluk, yumuşak köşe, ince çizgi, tek vurgu rengi.
+ */
+:root {
+  --bg: #e9ebf0;
+  --surface: #ffffff;
+  --raised: #f5f6f9;
+  --sunken: #eef0f4;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --faint: #a1a1a6;
+  --line: rgb(0 0 0 / 0.08);
+  --accent: #0071e3;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(0 113 227 / 0.1);
+  --ok: #1d8f4e;
+  --warn: #b25e09;
+  --bad: #d12b2f;
+  --ig: #c13584;
+  --wa: #1f9d55;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #050608;
+  --surface: #101216;
+  --raised: #171a20;
+  --sunken: #0a0b0e;
+  --fg: #f5f5f7;
+  --muted: #98989f;
+  --faint: #636366;
+  --line: rgb(255 255 255 / 0.08);
+  --accent: #0a84ff;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(10 132 255 / 0.16);
+  --ok: #32d74b;
+  --warn: #ffb340;
+  --bad: #ff6961;
+  --ig: #f06fb5;
+  --wa: #4cd37b;
+  color-scheme: dark;
+}
+
+@layer base {
+  html { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+  body { background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.45; }
+  * { border-color: var(--line); }
+  ::selection { background: var(--accent-soft); }
+  button, [role="button"] { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+}
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 280ms cubic-bezier(0.2, 0, 0, 1) backwards; } /* backwards: bitince transform kalmaz; kalırsa `fixed` çocuklar sayfa boyunca uzayan kapsayıcıya göre konumlanır */
+@keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: none; } }
+.pop { animation: pop 220ms cubic-bezier(0.2, 0, 0, 1) backwards; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.pop-fade { animation: fade 180ms ease-out backwards; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.9s linear infinite; }
+@keyframes pulse-soft { 0%,100% { opacity: .5 } 50% { opacity: 1 } }
+.pulse-soft { animation: pulse-soft 1.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise, .spin, .pulse-soft, .pop, .pop-fade { animation: none; }
+}
+
+.glass { background: color-mix(in oklab, var(--surface) 72%, transparent); backdrop-filter: saturate(180%) blur(20px); }
